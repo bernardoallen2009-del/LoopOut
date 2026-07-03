@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.npm-cache/
+.vercel/
+.vercel-config/
+.vercel-cache/
+.vercel-data/
+.DS_Store
+*.log

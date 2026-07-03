@@ -1,0 +1,18 @@
+{
+  "name": "LoopOut",
+  "short_name": "LoopOut",
+  "description": "Turn screen time into real-life connection.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#F7FBFF",
+  "theme_color": "#F7FBFF",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/loopout-logo-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

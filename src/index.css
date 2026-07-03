@@ -1,0 +1,142 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  background: #f7fbff;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: #f7fbff;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  overflow-x: hidden;
+  background: #f7fbff;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: rgba(0, 122, 255, 0.16);
+}
+
+.brand-symbol {
+  position: relative;
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
+.brand-symbol img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 96px;
+  max-width: none;
+  transform: translate(-50%, -37%);
+}
+
+.hero-stage {
+  position: relative;
+  min-height: 94vh;
+  overflow: hidden;
+  border-bottom: 1px solid rgba(216, 232, 248, 0.9);
+  background: #f7fbff;
+}
+
+.hero-stage::before {
+  position: absolute;
+  inset: 72px 18px auto;
+  height: 1px;
+  content: "";
+  background: rgba(216, 232, 248, 0.95);
+}
+
+.hero-phone {
+  position: absolute;
+  right: 50%;
+  bottom: 26px;
+  width: min(76vw, 330px);
+  transform: translateX(50%);
+  opacity: 0.24;
+  pointer-events: none;
+}
+
+.phone-shell {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 0.49;
+  padding: 14px;
+  border: 1px solid rgba(216, 232, 248, 0.95);
+  border-radius: 46px;
+  background: #ffffff;
+  box-shadow: 0 32px 90px rgba(10, 61, 145, 0.18);
+}
+
+.phone-island {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  z-index: 2;
+  width: 92px;
+  height: 27px;
+  border-radius: 999px;
+  background: #0b1220;
+  transform: translateX(-50%);
+}
+
+.phone-screen {
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid rgba(216, 232, 248, 0.95);
+  border-radius: 34px;
+  background: #f7fbff;
+  padding: 56px 16px 16px;
+}
+
+@media (min-width: 768px) {
+  .hero-stage {
+    min-height: 90vh;
+  }
+
+  .hero-phone {
+    right: 8%;
+    bottom: 40px;
+    width: 340px;
+    transform: none;
+    opacity: 0.72;
+  }
+}
+
+@media (max-width: 380px) {
+  .hero-phone {
+    width: 82vw;
+    opacity: 0.18;
+  }
+
+  .phone-screen {
+    padding-inline: 12px;
+  }
+}

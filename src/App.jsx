@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   BarChart3,
@@ -117,6 +117,50 @@ function useNow() {
 
 function classNames(...items) {
   return items.filter(Boolean).join(' ');
+}
+
+function getGoogleMapsUrl(place) {
+  if (place.coordinates) {
+    return `https://www.google.com/maps/search/?api=1&query=${place.coordinates.lat},${place.coordinates.lng}`;
+  }
+
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${place.name}, Lisbon`)}`;
+}
+
+let leafletLoadPromise;
+
+function loadLeaflet() {
+  if (typeof window === 'undefined') return Promise.reject(new Error('Leaflet needs a browser'));
+  if (window.L) return Promise.resolve(window.L);
+
+  if (!leafletLoadPromise) {
+    leafletLoadPromise = new Promise((resolve, reject) => {
+      if (!document.getElementById('leaflet-css')) {
+        const link = document.createElement('link');
+        link.id = 'leaflet-css';
+        link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        document.head.appendChild(link);
+      }
+
+      const existingScript = document.getElementById('leaflet-js');
+      if (existingScript) {
+        existingScript.addEventListener('load', () => resolve(window.L), { once: true });
+        existingScript.addEventListener('error', reject, { once: true });
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.id = 'leaflet-js';
+      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+      script.async = true;
+      script.onload = () => resolve(window.L);
+      script.onerror = reject;
+      document.body.appendChild(script);
+    });
+  }
+
+  return leafletLoadPromise;
 }
 
 function getGreeting() {
@@ -342,11 +386,115 @@ function PlaceCard({ place, onInvite }) {
         <Button variant="soft" className="px-3" onClick={() => onInvite(null, place)}>
           Invite here
         </Button>
-        <Button variant="secondary" className="px-3" onClick={() => window.open('https://maps.apple.com', '_blank')}>
-          Open in Maps
+        <Button
+          variant="secondary"
+          className="px-3"
+          onClick={() => window.open(getGoogleMapsUrl(place), '_blank', 'noopener,noreferrer')}
+        >
+          Google Maps
         </Button>
       </div>
     </div>
+  );
+}
+
+function PhoneFreeMap({ places }) {
+  const mapElementRef = useRef(null);
+  const mapRef = useRef(null);
+  const markerLayerRef = useRef(null);
+  const [status, setStatus] = useState('loading');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadLeaflet()
+      .then((L) => {
+        if (cancelled || !mapElementRef.current || mapRef.current) return;
+
+        const map = L.map(mapElementRef.current, {
+          attributionControl: true,
+          scrollWheelZoom: false,
+          zoomControl: false,
+        }).setView([38.7223, -9.1393], 12);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap',
+        }).addTo(map);
+
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
+        markerLayerRef.current = L.layerGroup().addTo(map);
+        mapRef.current = map;
+        setStatus('ready');
+      })
+      .catch(() => {
+        if (!cancelled) setStatus('error');
+      });
+
+    return () => {
+      cancelled = true;
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+        markerLayerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (status !== 'ready' || !window.L || !mapRef.current || !markerLayerRef.current) return;
+
+    const L = window.L;
+    const points = places.filter((place) => place.coordinates);
+    markerLayerRef.current.clearLayers();
+
+    const markerIcon = L.divIcon({
+      className: 'loopout-map-pin',
+      html: '<span></span>',
+      iconAnchor: [14, 30],
+      iconSize: [28, 34],
+      popupAnchor: [0, -28],
+    });
+
+    points.forEach((place) => {
+      L.marker([place.coordinates.lat, place.coordinates.lng], { icon: markerIcon })
+        .bindPopup(
+          `<strong>${place.name}</strong><br/><span>${place.area}</span><br/><small>${place.activity}</small>`
+        )
+        .addTo(markerLayerRef.current);
+    });
+
+    if (points.length > 1) {
+      const bounds = L.latLngBounds(points.map((place) => [place.coordinates.lat, place.coordinates.lng]));
+      mapRef.current.fitBounds(bounds, { padding: [26, 26], maxZoom: 13 });
+    } else if (points.length === 1) {
+      mapRef.current.setView([points[0].coordinates.lat, points[0].coordinates.lng], 14);
+    }
+  }, [places, status]);
+
+  return (
+    <section className="mb-4 overflow-hidden rounded-lg border border-line bg-white shadow-sm">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <div>
+          <h2 className="font-semibold text-ink">Phone-free map</h2>
+          <p className="text-sm text-muted">{places.length} suggested pins in Lisbon</p>
+        </div>
+        <span className="rounded-full bg-soft px-3 py-1 text-xs font-semibold text-deep">Live pins</span>
+      </div>
+      <div className="relative h-80 bg-soft">
+        <div ref={mapElementRef} className="h-full w-full" />
+        {status === 'loading' ? (
+          <div className="absolute inset-0 grid place-items-center bg-soft text-sm font-semibold text-deep">
+            Loading map...
+          </div>
+        ) : null}
+        {status === 'error' ? (
+          <div className="absolute inset-0 grid place-items-center bg-soft px-6 text-center text-sm leading-6 text-deep">
+            Map tiles need an internet connection. The exact Google Maps links still work from each place card.
+          </div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -937,32 +1085,60 @@ function SelectAppPage({ navigate, draft, setDraft }) {
 function PurposePage({ navigate, draft, setDraft }) {
   const app = getAppById(draft.appId);
   const purpose = draft.purpose || '';
+  const ready = purpose.trim().length >= 4;
 
   return (
     <>
-      <PageHeader title={`Why are you opening ${app.name}?`} subtitle="A short pause helps you stay in control." navigate={navigate} backTo="/session/select-app" />
+      <PageHeader
+        title={`Why are you opening ${app.name}?`}
+        subtitle="A short pause helps you stay in control."
+        navigate={navigate}
+        backTo="/session/select-app"
+      />
       <div className="rounded-lg border border-line bg-white p-5 shadow-soft">
+        <div className="flex items-center gap-3">
+          <div
+            className="grid h-12 w-12 shrink-0 place-items-center rounded-[12px] text-sm font-bold text-white"
+            style={{ backgroundColor: app.tone }}
+          >
+            {app.glyph}
+          </div>
+          <div>
+            <p className="text-sm font-medium text-muted">Opening {app.name}</p>
+            <h1 className="text-2xl font-semibold leading-tight text-ink">Name the reason first.</h1>
+          </div>
+        </div>
+        <div className="mt-5 rounded-lg bg-soft p-4">
+          <p className="text-sm leading-6 text-deep">
+            One clear sentence is enough. LoopOut is just helping you turn the tap into a choice.
+          </p>
+        </div>
         <label className="block">
-          <span className="text-sm font-semibold text-ink">Write your purpose.</span>
+          <span className="mt-5 block text-sm font-semibold text-ink">Write your purpose.</span>
           <textarea
-            className="mt-3 min-h-36 w-full resize-none rounded-lg border border-line bg-canvas px-4 py-4 text-lg text-ink outline-none transition placeholder:text-muted/70 focus:border-primary focus:ring-4 focus:ring-primary/10"
-            placeholder="Write your purpose..."
+            className="mt-3 min-h-40 w-full resize-none rounded-lg border border-line bg-canvas px-4 py-4 text-xl font-medium leading-8 text-ink outline-none transition placeholder:text-muted/60 focus:border-primary focus:bg-white focus:ring-4 focus:ring-primary/10"
+            placeholder="Example: reply to one message, then stop."
             value={purpose}
             onChange={(event) => setDraft({ ...draft, purpose: event.target.value })}
             autoFocus
           />
         </label>
-        <p className="mt-3 text-sm leading-6 text-muted">Use this app with intention, not autopilot.</p>
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <p className="text-sm leading-6 text-muted">Use this app with intention, not autopilot.</p>
+          <span className={classNames('rounded-full px-3 py-1 text-xs font-semibold', ready ? 'bg-[#E8F8EF] text-[#137A3D]' : 'bg-canvas text-muted')}>
+            {ready ? 'Ready' : 'Keep it clear'}
+          </span>
+        </div>
       </div>
 
       <div className="mt-5">
-        <p className="text-sm font-semibold text-ink">Examples</p>
-        <div className="mt-3 grid gap-2">
+        <p className="text-sm font-semibold text-ink">Tap a calm starting point</p>
+        <div className="mt-3 grid grid-cols-2 gap-2">
           {purposeExamples.map((example) => (
             <button
               type="button"
               key={example}
-              className="rounded-lg border border-line bg-white px-4 py-3 text-left text-sm font-medium text-deep shadow-sm"
+              className="min-h-16 rounded-lg border border-line bg-white px-4 py-3 text-left text-sm font-semibold leading-5 text-deep shadow-sm transition active:scale-[0.99]"
               onClick={() => setDraft({ ...draft, purpose: example })}
             >
               {example}
@@ -973,7 +1149,7 @@ function PurposePage({ navigate, draft, setDraft }) {
       <Button
         className="mt-5 w-full"
         icon={ArrowRight}
-        disabled={purpose.trim().length < 4}
+        disabled={!ready}
         onClick={() => navigate('/session/timer')}
       >
         Continue
@@ -984,10 +1160,14 @@ function PurposePage({ navigate, draft, setDraft }) {
 
 function TimerPage({ navigate, draft, setDraft, settings, startSession }) {
   const app = getAppById(draft.appId);
+  const defaultLock = lockDurations.includes(draft.lockDurationMinutes)
+    ? draft.lockDurationMinutes
+    : lockDurations.includes(settings.defaultLock)
+      ? settings.defaultLock
+      : 30;
   const [timer, setTimer] = useState(draft.timerMinutes || settings.defaultTimer);
-  const [lock, setLock] = useState(draft.lockDurationMinutes || settings.defaultLock);
+  const [lock, setLock] = useState(defaultLock);
   const [timerCustom, setTimerCustom] = useState(false);
-  const [lockCustom, setLockCustom] = useState(false);
 
   useEffect(() => {
     setDraft({ ...draft, timerMinutes: timer, lockDurationMinutes: lock });
@@ -1035,22 +1215,16 @@ function TimerPage({ navigate, draft, setDraft, settings, startSession }) {
 
       <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
         <p className="text-sm font-semibold text-ink">Lock after timer: {lock} minutes</p>
-        <div className="mt-3 grid grid-cols-5 gap-2">
+        <p className="mt-1 text-sm leading-6 text-muted">Choose one of the preset recovery windows.</p>
+        <div className="mt-3 grid grid-cols-4 gap-2">
           {lockDurations.map((minutes) => (
-            <ChoiceButton selected={lock === minutes && !lockCustom} key={minutes} onClick={() => {
-              setLockCustom(false);
+            <ChoiceButton selected={lock === minutes} key={minutes} onClick={() => {
               setLock(minutes);
             }}>
               {minutes}m
             </ChoiceButton>
           ))}
-          <ChoiceButton selected={lockCustom} onClick={() => setLockCustom(true)}>
-            Custom
-          </ChoiceButton>
         </div>
-        {lockCustom ? (
-          <NumberField label="Minutes" value={lock} min={5} max={180} onChange={setLock} />
-        ) : null}
       </section>
 
       <Button
@@ -1145,7 +1319,7 @@ function ActiveTimerPage({ navigate, session, setSession, now }) {
   );
 }
 
-function LockedPage({ navigate, session, setSession, now }) {
+function LockedPage({ navigate, session, now }) {
   if (!session || session.status !== 'locked') {
     return <EmptyState navigate={navigate} title="No active lock" action="Start a session" path="/session/select-app" />;
   }
@@ -1187,18 +1361,6 @@ function LockedPage({ navigate, session, setSession, now }) {
         </Button>
         <Button variant="secondary" icon={MapPin} onClick={() => navigate('/places')}>
           Find phone-free places
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() =>
-            setSession({
-              ...session,
-              status: 'completed',
-              completedAt: Date.now(),
-            })
-          }
-        >
-          Mark lock complete
         </Button>
       </div>
     </>
@@ -1278,7 +1440,7 @@ function FriendsPage({ navigate, settings, openInvite }) {
 
 function PlacesPage({ navigate, openInvite }) {
   const [category, setCategory] = useState('All');
-  const categories = ['All', 'Libraries', 'Parks & gardens', 'Study spots', 'Cafes', 'Cultural spaces'];
+  const categories = ['All', 'Public gardens', 'Parks & gardens', 'Libraries', 'Study spots', 'Cafes', 'Cultural spaces'];
   const places = category === 'All' ? lisbonPlaces : lisbonPlaces.filter((place) => place.type === category);
 
   return (
@@ -1309,6 +1471,7 @@ function PlacesPage({ navigate, openInvite }) {
           </button>
         ))}
       </div>
+      <PhoneFreeMap places={places} />
       <div className="space-y-3">
         {places.map((place) => (
           <PlaceCard place={place} key={place.id} onInvite={openInvite} />
@@ -1717,7 +1880,7 @@ export default function App() {
         return <ActiveTimerPage navigate={navigate} session={session} setSession={setSession} now={now} />;
       }
       if (path === '/session/locked') {
-        return <LockedPage navigate={navigate} session={session} setSession={setSession} now={now} />;
+        return <LockedPage navigate={navigate} session={session} now={now} />;
       }
       if (path === '/friends') return <FriendsPage navigate={navigate} settings={settings} openInvite={openInvite} />;
       if (path === '/places') return <PlacesPage navigate={navigate} openInvite={openInvite} />;

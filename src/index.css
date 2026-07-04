@@ -107,27 +107,15 @@ button {
 
 .hero-stage {
   position: relative;
-  min-height: 94vh;
   overflow: hidden;
   border-bottom: 1px solid rgba(216, 232, 248, 0.9);
   background: #f7fbff;
 }
 
-.hero-stage::before {
-  position: absolute;
-  inset: 72px 18px auto;
-  height: 1px;
-  content: "";
-  background: rgba(216, 232, 248, 0.95);
-}
-
 .hero-phone {
-  position: absolute;
-  right: 50%;
-  bottom: 26px;
-  width: min(76vw, 330px);
-  transform: translateX(50%);
-  opacity: 0.24;
+  position: relative;
+  width: min(84vw, 310px);
+  opacity: 1;
   pointer-events: none;
 }
 
@@ -139,7 +127,7 @@ button {
   border: 1px solid rgba(216, 232, 248, 0.95);
   border-radius: 46px;
   background: #ffffff;
-  box-shadow: 0 32px 90px rgba(10, 61, 145, 0.18);
+  box-shadow: 0 30px 80px rgba(10, 61, 145, 0.18);
 }
 
 .phone-island {
@@ -155,6 +143,8 @@ button {
 }
 
 .phone-screen {
+  display: flex;
+  flex-direction: column;
   height: 100%;
   overflow: hidden;
   border: 1px solid rgba(216, 232, 248, 0.95);
@@ -164,25 +154,18 @@ button {
 }
 
 @media (min-width: 768px) {
-  .hero-stage {
-    min-height: 90vh;
-  }
-
   .hero-phone {
-    right: 8%;
-    bottom: 40px;
-    width: 340px;
-    transform: none;
-    opacity: 0.72;
+    width: 330px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .hero-phone {
+    width: 360px;
   }
 }
 
 @media (max-width: 380px) {
-  .hero-phone {
-    width: 82vw;
-    opacity: 0.18;
-  }
-
   .phone-screen {
     padding-inline: 12px;
   }

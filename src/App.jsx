@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowRight,
@@ -166,6 +166,32 @@ function getGoogleMapsUrl(place) {
   }
 
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${place.name}, Lisbon`)}`;
+}
+
+function toRadians(value) {
+  return (value * Math.PI) / 180;
+}
+
+function getDistanceKm(from, to) {
+  if (!from || !to) return null;
+
+  const earthRadiusKm = 6371;
+  const latitudeDelta = toRadians(to.lat - from.lat);
+  const longitudeDelta = toRadians(to.lng - from.lng);
+  const fromLatitude = toRadians(from.lat);
+  const toLatitude = toRadians(to.lat);
+
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(fromLatitude) * Math.cos(toLatitude) * Math.sin(longitudeDelta / 2) ** 2;
+
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+function formatDistance(distanceKm) {
+  if (distanceKm == null) return '';
+  if (distanceKm < 1) return `${Math.round(distanceKm * 1000)} m away`;
+  return `${distanceKm.toFixed(distanceKm < 10 ? 1 : 0)} km away`;
 }
 
 let leafletLoadPromise;
@@ -720,6 +746,11 @@ function PlaceCard({ place, onInvite }) {
             <MapPin className="h-3.5 w-3.5" />
             {place.area}
           </p>
+          {place.distanceKm != null ? (
+            <p className="mt-2 inline-flex rounded-full bg-soft px-2.5 py-1 text-xs font-semibold text-deep">
+              {formatDistance(place.distanceKm)}
+            </p>
+          ) : null}
         </div>
         <div className="grid h-11 w-11 place-items-center rounded-full bg-soft text-primary">
           {place.type === 'Libraries' ? <Library className="h-5 w-5" /> : <Trees className="h-5 w-5" />}
@@ -757,7 +788,7 @@ function PlaceCard({ place, onInvite }) {
   );
 }
 
-function PhoneFreeMap({ places }) {
+function PhoneFreeMap({ places, userLocation }) {
   const mapElementRef = useRef(null);
   const mapRef = useRef(null);
   const markerLayerRef = useRef(null);
@@ -815,10 +846,23 @@ function PhoneFreeMap({ places }) {
       popupAnchor: [0, -28],
     });
 
+    if (userLocation) {
+      L.circleMarker([userLocation.lat, userLocation.lng], {
+        radius: 8,
+        fillColor: '#007AFF',
+        fillOpacity: 1,
+        color: '#fff',
+        opacity: 1,
+        weight: 3,
+      })
+        .bindPopup('<strong>Your location</strong>')
+        .addTo(markerLayerRef.current);
+    }
+
     points.forEach((place) => {
       L.marker([place.coordinates.lat, place.coordinates.lng], { icon: markerIcon })
         .bindPopup(
-          `<strong>${place.name}</strong><br/><span>${place.area}</span><br/><small>${place.activity}</small>`
+          `<strong>${place.name}</strong><br/><span>${place.area}</span><br/><small>${place.distanceKm != null ? `${formatDistance(place.distanceKm)} &middot; ` : ''}${place.activity}</small>`
         )
         .addTo(markerLayerRef.current);
     });
@@ -829,7 +873,7 @@ function PhoneFreeMap({ places }) {
     } else if (points.length === 1) {
       mapRef.current.setView([points[0].coordinates.lat, points[0].coordinates.lng], 14);
     }
-  }, [places, status]);
+  }, [places, status, userLocation]);
 
   return (
     <section className="mb-4 overflow-hidden rounded-lg border border-line bg-white shadow-sm">
@@ -964,38 +1008,49 @@ function HeroPhone() {
       <div className="phone-shell">
         <div className="phone-island" />
         <div className="phone-screen">
-          <div className="flex items-center justify-between">
-            <BrandMark compact />
-            <span className="rounded-full bg-[#E8F8EF] px-2.5 py-1 text-xs font-semibold text-[#137A3D]">Live</span>
+          <div className="flex items-center justify-between text-xs font-semibold text-muted">
+            <span>9:41</span>
+            <span className="rounded-full bg-[#E8F8EF] px-2.5 py-1 text-[#137A3D]">Ready</span>
           </div>
-          <div className="mt-5 rounded-lg border border-line bg-white p-3">
-            <p className="text-xs font-medium text-muted">Purpose</p>
-            <p className="mt-1 text-sm font-semibold text-ink">Reply to one message</p>
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <div className="rounded-lg bg-soft p-3">
-              <p className="text-xs text-muted">Timer</p>
-              <p className="mt-1 text-2xl font-semibold text-deep">10:00</p>
-            </div>
-            <div className="rounded-lg bg-[#F3F7FB] p-3">
-              <p className="text-xs text-muted">Lock</p>
-              <p className="mt-1 text-2xl font-semibold text-ink">30m</p>
+          <div className="mt-6 rounded-[22px] border border-line bg-white p-4 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Before Instagram</p>
+            <h3 className="mt-2 text-xl font-semibold leading-tight text-ink">What are you here to do?</h3>
+            <div className="mt-4 rounded-lg bg-canvas p-3">
+              <p className="text-sm font-medium leading-6 text-ink">Reply to Ana, then leave.</p>
             </div>
           </div>
-          <div className="mt-3 rounded-lg bg-deep p-3 text-white">
-            <div className="flex items-center gap-2">
-              <LockKeyhole className="h-4 w-4" />
-              <p className="text-sm font-semibold">Instagram locked</p>
-            </div>
-            <p className="mt-1 text-xs text-white/75">Take 30 minutes away from the loop.</p>
-          </div>
-          <div className="mt-3 space-y-2">
-            {['Friend offline', 'Nearby invite', 'Gulbenkian walk'].map((item) => (
-              <div key={item} className="flex items-center gap-2 rounded-lg bg-white p-2 shadow-sm">
-                <div className="h-7 w-7 rounded-full bg-soft" />
-                <span className="text-xs font-medium text-ink">{item}</span>
+          <div className="mt-4 grid grid-cols-4 gap-2">
+            {[5, 10, 15, 20].map((minutes) => (
+              <div
+                className={classNames(
+                  'grid min-h-10 place-items-center rounded-full text-sm font-semibold',
+                  minutes === 10 ? 'bg-primary text-white' : 'bg-white text-deep'
+                )}
+                key={minutes}
+              >
+                {minutes}
               </div>
             ))}
+          </div>
+          <div className="mt-4 rounded-[22px] bg-deep p-4 text-white">
+            <div className="flex items-center gap-2">
+              <LockKeyhole className="h-4 w-4" />
+              <p className="text-sm font-semibold">10:00 intentional minutes</p>
+            </div>
+            <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/15">
+              <div className="h-full w-2/3 rounded-full bg-white" />
+            </div>
+          </div>
+          <div className="mt-auto rounded-[18px] bg-white p-3 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="grid h-9 w-9 place-items-center rounded-full bg-soft text-primary">
+                <MapPin className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-ink">Gulbenkian Gardens</p>
+                <p className="text-xs text-muted">1.2 km away | phone-free walk</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1016,59 +1071,109 @@ function Landing({ navigate }) {
       </nav>
 
       <section className="hero-stage">
-        <HeroPhone />
-        <div className="relative z-10 mx-auto flex min-h-[88vh] max-w-3xl flex-col items-center justify-center px-4 pb-10 pt-28 text-center">
-          <p className="mb-4 rounded-full border border-line bg-white px-4 py-2 text-sm font-semibold text-deep shadow-sm">
-            Turn screen time into real-life connection.
-          </p>
-          <h1 className="text-balance text-5xl font-semibold leading-[1.02] tracking-normal text-ink sm:text-7xl">
-            Break the scroll loop.
-          </h1>
-          <p className="mt-5 max-w-2xl text-pretty text-lg leading-8 text-muted">
-            LoopOut helps you open distracting apps with purpose, set a timer, and reconnect with friends offline when
-            the time ends.
-          </p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Button icon={Play} onClick={() => navigate('/onboarding')}>
-              Start LoopOut
-            </Button>
-            <Button variant="secondary" icon={Compass} onClick={() => navigate('/setup-iphone')}>
-              How it works
-            </Button>
+        <div className="mx-auto grid min-h-[88vh] max-w-6xl items-center gap-10 px-4 pb-14 pt-28 lg:min-h-[92vh] lg:grid-cols-[minmax(0,1fr)_380px] lg:pt-24">
+          <div className="max-w-3xl text-center lg:text-left">
+            <p className="mx-auto inline-flex rounded-full border border-line bg-white px-4 py-2 text-sm font-semibold text-deep shadow-sm lg:mx-0">
+              Digital wellbeing for real-life connection
+            </p>
+            <h1 className="mt-5 text-balance text-6xl font-semibold leading-[0.98] tracking-normal text-ink sm:text-7xl lg:text-8xl">
+              LoopOut
+            </h1>
+            <p className="mt-5 max-w-2xl text-pretty text-2xl font-semibold leading-tight text-ink lg:text-3xl">
+              Break the scroll loop before it starts.
+            </p>
+            <p className="mt-5 max-w-2xl text-pretty text-lg leading-8 text-muted">
+              Choose the app, write the reason, set a timer, then turn the end of screen time into a real offline plan.
+            </p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row lg:justify-start">
+              <Button icon={Play} onClick={() => navigate('/onboarding')}>
+                Start LoopOut
+              </Button>
+              <Button variant="secondary" icon={Compass} onClick={() => navigate('/setup-iphone')}>
+                See setup
+              </Button>
+            </div>
+            <div className="mt-8 grid gap-3 text-left sm:grid-cols-3">
+              {[
+                ['Purpose first', 'Pause before opening distracting apps.'],
+                ['Clear limits', 'Preset timers and lock windows.'],
+                ['Nearby plans', 'Meet friends in phone-free places.'],
+              ].map(([title, text]) => (
+                <div className="rounded-lg border border-line bg-white/80 p-4 shadow-sm" key={title}>
+                  <p className="text-sm font-semibold text-ink">{title}</p>
+                  <p className="mt-1 text-sm leading-6 text-muted">{text}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="hidden justify-center lg:flex lg:justify-end">
+            <HeroPhone />
           </div>
         </div>
       </section>
 
-      <main className="mx-auto max-w-6xl px-4 pb-20">
-        <section className="grid gap-4 py-12 md:grid-cols-2">
+      <main className="mx-auto max-w-6xl px-4 pb-20 pt-8">
+        <section className="grid gap-4 py-10 md:grid-cols-3">
           <InfoPanel
-            eyebrow="The Problem"
-            title="Young adults are losing focus, sleep and real connection in an always-online world."
-            icon={Bell}
+            eyebrow="Pause"
+            title="Open apps with intention instead of autopilot."
+            body="LoopOut asks for a purpose before the scroll begins."
+            icon={Sparkles}
           />
           <InfoPanel
-            eyebrow="The Solution"
-            title="LoopOut adds a pause before scrolling."
-            body="Write a purpose, choose a limit, and let the end of screen time become the beginning of something real."
-            icon={ShieldCheck}
+            eyebrow="Limit"
+            title="Use preset timers and finish with a real stopping point."
+            body="No endless custom loop. Clear choices keep the flow simple."
+            icon={Timer}
+          />
+          <InfoPanel
+            eyebrow="Reconnect"
+            title="Find nearby phone-free places when the timer ends."
+            body="Turn protected time into walks, study sessions and offline invites."
+            icon={MapPin}
           />
         </section>
 
-        <section className="py-12">
-          <SectionTitle eyebrow="How it works" title="A calmer path from impulse to intention." />
-          <div className="mt-6 grid gap-3 md:grid-cols-5">
-            {['Choose an app', 'Write your purpose', 'Set a timer', 'Lock the loop', 'Meet offline'].map((item, index) => (
-              <div className="rounded-lg border border-line bg-white p-4 shadow-sm" key={item}>
+        <section className="grid gap-4 py-10 lg:grid-cols-[0.9fr_1.1fr]">
+          <div>
+            <SectionTitle eyebrow="How it works" title="One clean flow from impulse to intention." />
+            <p className="mt-3 max-w-md leading-7 text-muted">
+              LoopOut is built around the moment before you open a distracting app, not a complicated dashboard.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[
+              ['1', 'Choose the app', 'Pick the social app you are about to open.'],
+              ['2', 'Name the purpose', 'Write one reason before continuing.'],
+              ['3', 'Set the limit', 'Choose a preset timer and lock duration.'],
+              ['4', 'Go offline', 'Use places and invites when the loop ends.'],
+            ].map(([step, title, text]) => (
+              <div className="rounded-lg border border-line bg-white p-4 shadow-sm" key={step}>
                 <span className="grid h-9 w-9 place-items-center rounded-full bg-soft text-sm font-semibold text-deep">
-                  {index + 1}
+                  {step}
                 </span>
-                <p className="mt-4 font-semibold text-ink">{item}</p>
+                <p className="mt-4 font-semibold text-ink">{title}</p>
+                <p className="mt-1 text-sm leading-6 text-muted">{text}</p>
               </div>
             ))}
           </div>
         </section>
 
-        <section className="py-12">
+        <section className="grid gap-4 py-10 md:grid-cols-2">
+          <InfoPanel
+            eyebrow="Built like an MVP"
+            title="Accounts, friends, places and privacy settings are ready for a real backend."
+            icon={Bell}
+          />
+          <InfoPanel
+            eyebrow="Practical constraint"
+            title="A PWA-friendly flow that works with iPhone Shortcuts today."
+            body="Native blocking can come later; the current product focuses on the real habit loop."
+            icon={ShieldCheck}
+          />
+        </section>
+
+        <section className="py-10">
           <SectionTitle eyebrow="Why it's different" title="Purpose first, then connection." />
           <div className="mt-6 grid gap-4 md:grid-cols-4">
             {[
@@ -1087,12 +1192,12 @@ function Landing({ navigate }) {
           </div>
         </section>
 
-        <section className="rounded-lg border border-line bg-white p-6 text-center shadow-soft sm:p-10">
-          <h2 className="text-3xl font-semibold text-ink">Create your first LoopOut session.</h2>
-          <p className="mx-auto mt-3 max-w-xl text-muted">
+        <section className="rounded-lg bg-deep p-6 text-center text-white shadow-soft sm:p-10">
+          <h2 className="text-3xl font-semibold">Ready to use screen time on purpose?</h2>
+          <p className="mx-auto mt-3 max-w-xl text-white/70">
             Start with one app, one purpose and one limit. The rest can become a habit.
           </p>
-          <Button className="mt-6" icon={ArrowRight} onClick={() => navigate('/onboarding')}>
+          <Button variant="secondary" className="mt-6" icon={ArrowRight} onClick={() => navigate('/onboarding')}>
             Start LoopOut
           </Button>
         </section>
@@ -2109,20 +2214,96 @@ function FriendsPage({
 
 function PlacesPage({ navigate, openInvite, places = lisbonPlaces, loading }) {
   const [category, setCategory] = useState('All');
+  const [userLocation, setUserLocation] = useState(null);
+  const [locationStatus, setLocationStatus] = useState('idle');
   const categories = ['All', 'Public gardens', 'Parks & gardens', 'Libraries', 'Study spots', 'Cafes', 'Cultural spaces'];
-  const visiblePlaces = category === 'All' ? places : places.filter((place) => place.type === category);
+
+  const requestLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      setLocationStatus('unsupported');
+      return;
+    }
+
+    setLocationStatus('requesting');
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setUserLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+        setLocationStatus('ready');
+      },
+      (error) => {
+        setUserLocation(null);
+        setLocationStatus(error.code === error.PERMISSION_DENIED ? 'denied' : 'error');
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 1000 * 60 * 5,
+        timeout: 10000,
+      }
+    );
+  }, []);
+
+  useEffect(() => {
+    requestLocation();
+  }, [requestLocation]);
+
+  const placesByDistance = useMemo(() => {
+    if (!userLocation) return places;
+
+    return places
+      .map((place) => ({
+        ...place,
+        distanceKm: place.coordinates ? getDistanceKm(userLocation, place.coordinates) : null,
+      }))
+      .sort((first, second) => {
+        const firstDistance = first.distanceKm ?? Number.POSITIVE_INFINITY;
+        const secondDistance = second.distanceKm ?? Number.POSITIVE_INFINITY;
+        return firstDistance - secondDistance;
+      });
+  }, [places, userLocation]);
+
+  const visiblePlaces =
+    category === 'All' ? placesByDistance : placesByDistance.filter((place) => place.type === category);
+
+  const locationCopy = {
+    idle: 'Preparing nearby places.',
+    requesting: 'Requesting your location...',
+    ready: 'Nearest places first.',
+    denied: 'Location is off. Showing the curated order.',
+    error: 'Could not read your location. Showing the curated order.',
+    unsupported: 'Location is not available in this browser.',
+  };
 
   return (
     <>
       <PageHeader title="Phone-free places in Lisbon" subtitle="Meet, study, walk or talk without the scroll." navigate={navigate} backTo="/dashboard" />
       <div className="mb-4 rounded-lg border border-line bg-white p-4 shadow-sm">
-        <div className="flex items-center gap-3">
+        <div className="flex items-start gap-3">
           <div className="grid h-11 w-11 place-items-center rounded-full bg-soft text-primary">
             <Compass className="h-5 w-5" />
           </div>
-          <p className="text-sm leading-6 text-muted">
-            These are suggested places for phone-free moments, not official phone-free zones yet.
-          </p>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm leading-6 text-muted">
+              These are suggested places for phone-free moments, not official phone-free zones yet.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span
+                className={classNames(
+                  'rounded-full px-3 py-1 text-xs font-semibold',
+                  locationStatus === 'ready' ? 'bg-[#E8F8EF] text-[#137A3D]' : 'bg-soft text-deep'
+                )}
+              >
+                {locationCopy[locationStatus]}
+              </span>
+              {['denied', 'error'].includes(locationStatus) ? (
+                <button type="button" className="text-xs font-semibold text-primary" onClick={requestLocation}>
+                  Try location again
+                </button>
+              ) : null}
+            </div>
+          </div>
         </div>
       </div>
       <div className="flex gap-2 overflow-x-auto pb-3">
@@ -2141,7 +2322,7 @@ function PlacesPage({ navigate, openInvite, places = lisbonPlaces, loading }) {
         ))}
       </div>
       {loading ? <SkeletonStack /> : null}
-      <PhoneFreeMap places={visiblePlaces} />
+      <PhoneFreeMap places={visiblePlaces} userLocation={userLocation} />
       <div className="space-y-3">
         {visiblePlaces.map((place) => (
           <PlaceCard place={place} key={place.id} onInvite={openInvite} />

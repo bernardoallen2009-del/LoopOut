@@ -1,4 +1,4 @@
-const CACHE_NAME = 'loopout-v4';
+const CACHE_NAME = 'loopout-v5';
 const APP_SHELL = [
   '/',
   '/dashboard',
@@ -28,20 +28,56 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+async function cacheResponse(request, response) {
+  if (!response || response.status !== 200 || response.type === 'opaque') return;
+  try {
+    const cache = await caches.open(CACHE_NAME);
+    await cache.put(request, response.clone());
+  } catch {
+    // Cache writes should never block a successful network response.
+  }
+}
+
+async function networkFirst(request, fallbackUrl = '/') {
+  try {
+    const response = await fetch(request);
+    await cacheResponse(request, response);
+    return response;
+  } catch {
+    const cached = await caches.match(request);
+    return cached || caches.match(fallbackUrl);
+  }
+}
+
+async function staleWhileRevalidate(request) {
+  const cached = await caches.match(request);
+  const fresh = fetch(request)
+    .then(async (response) => {
+      await cacheResponse(request, response);
+      return response;
+    })
+    .catch(() => null);
+
+  return cached || fresh || caches.match('/');
+}
+
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
 
-      return fetch(event.request)
-        .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          return response;
-        })
-        .catch(() => caches.match('/'));
-    })
-  );
+  if (event.request.mode === 'navigate') {
+    event.respondWith(networkFirst(event.request));
+    return;
+  }
+
+  if (['script', 'style', 'worker', 'document'].includes(event.request.destination)) {
+    event.respondWith(networkFirst(event.request));
+    return;
+  }
+
+  if (['image', 'manifest'].includes(event.request.destination)) {
+    event.respondWith(staleWhileRevalidate(event.request));
+  }
 });

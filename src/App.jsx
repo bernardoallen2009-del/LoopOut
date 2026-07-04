@@ -2277,7 +2277,7 @@ function ScreenTimeImportPage({ navigate, logs = [], onSave, saving, isRemote })
       await onSave(form);
       setMessage('Screen Time log saved.');
     } catch (err) {
-      setError(err.message || 'Could not save this log.');
+      setError(getReadableSupabaseError(err) || 'Could not save this log.');
     }
   };
 
@@ -2409,7 +2409,7 @@ function SettingsPage({
       });
       setNotice('Profile saved.');
     } catch (err) {
-      setError(err.message || 'Could not save profile.');
+      setError(getReadableSupabaseError(err) || 'Could not save profile.');
     } finally {
       setSaving(false);
     }
@@ -2423,7 +2423,7 @@ function SettingsPage({
     try {
       await onSavePrivacy?.(next);
     } catch (err) {
-      setError(err.message || 'Could not update privacy settings.');
+      setError(getReadableSupabaseError(err) || 'Could not update privacy settings.');
     }
   };
 
@@ -2780,7 +2780,7 @@ export default function App() {
         setProgressStats(stats);
         setScreenTimeLogs(logs.map(screenTimeLogFromRecord));
       } catch (err) {
-        setBackendError(err.message || 'Could not load LoopOut data.');
+        setBackendError(getReadableSupabaseError(err) || 'Could not load LoopOut data.');
       } finally {
         setDataLoading(false);
       }
@@ -2803,7 +2803,7 @@ export default function App() {
         setAuthUser(user);
         if (user) await loadRemoteData(user);
       } catch (err) {
-        if (!cancelled) setBackendError(err.message || 'Could not connect to Supabase.');
+        if (!cancelled) setBackendError(getReadableSupabaseError(err) || 'Could not connect to Supabase.');
       } finally {
         if (!cancelled) setAuthLoading(false);
       }
@@ -2893,7 +2893,7 @@ export default function App() {
         lockEndsAt: lockStartedAt + minutesToMs(session.lockDurationMinutes),
       };
       setSession(nextSession);
-      persistSessionLock(nextSession).catch((err) => setBackendError(err.message || 'Could not save lock state.'));
+      persistSessionLock(nextSession).catch((err) => setBackendError(getReadableSupabaseError(err) || 'Could not save lock state.'));
       if (path !== '/session/locked') navigate('/session/locked');
     }
     if (session.status === 'locked' && now >= session.lockEndsAt) {
@@ -2903,7 +2903,7 @@ export default function App() {
         completedAt: session.lockEndsAt,
       };
       setSession(nextSession);
-      persistSessionComplete(nextSession).catch((err) => setBackendError(err.message || 'Could not complete session.'));
+      persistSessionComplete(nextSession).catch((err) => setBackendError(getReadableSupabaseError(err) || 'Could not complete session.'));
     }
   }, [navigate, now, path, persistSessionComplete, persistSessionLock, session, setSession]);
 
@@ -2938,7 +2938,7 @@ export default function App() {
       setDraft({ ...nextDraft, purpose: '' });
       navigate('/session/active');
     } catch (err) {
-      setBackendError(err.message || 'Could not start session.');
+      setBackendError(getReadableSupabaseError(err) || 'Could not start session.');
     }
   };
 
@@ -2973,7 +2973,7 @@ export default function App() {
       setInviteToast(true);
       window.setTimeout(() => setInviteToast(false), 2600);
     } catch (err) {
-      setBackendError(err.message || 'Could not send invite.');
+      setBackendError(getReadableSupabaseError(err) || 'Could not send invite.');
     } finally {
       setInviteSending(false);
     }
@@ -3135,7 +3135,9 @@ export default function App() {
             setSession={setSession}
             now={now}
             onSessionLock={(nextSession) =>
-              persistSessionLock(nextSession).catch((err) => setBackendError(err.message || 'Could not save lock state.'))
+              persistSessionLock(nextSession).catch((err) =>
+                setBackendError(getReadableSupabaseError(err) || 'Could not save lock state.')
+              )
             }
           />
         );

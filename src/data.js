@@ -1,13 +1,13 @@
 export const appOptions = [
-  { id: 'tiktok', name: 'TikTok', category: 'Short video', glyph: 'Tk', tone: '#111827' },
-  { id: 'instagram', name: 'Instagram', category: 'Social', glyph: 'Ig', tone: '#F0447A' },
-  { id: 'youtube', name: 'YouTube Shorts', category: 'Short video', glyph: 'Yt', tone: '#FF2D2D' },
-  { id: 'snapchat', name: 'Snapchat', category: 'Messaging', glyph: 'Sc', tone: '#FACC15' },
-  { id: 'x', name: 'X', category: 'News feed', glyph: 'X', tone: '#0B1220' },
-  { id: 'netflix', name: 'Netflix', category: 'Streaming', glyph: 'Nf', tone: '#E50914' },
-  { id: 'discord', name: 'Discord', category: 'Community', glyph: 'Dc', tone: '#5865F2' },
-  { id: 'games', name: 'Games', category: 'Entertainment', glyph: 'Gm', tone: '#22C55E' },
-  { id: 'custom', name: 'Custom app', category: 'Your choice', glyph: '+', tone: '#007AFF' },
+  { id: 'tiktok', name: 'TikTok', category: 'Short video', glyph: 'Tk', logo: 'tiktok', tone: '#111827' },
+  { id: 'instagram', name: 'Instagram', category: 'Social', glyph: 'Ig', logo: 'instagram', tone: '#F0447A' },
+  { id: 'youtube', name: 'YouTube Shorts', category: 'Short video', glyph: 'Yt', logo: 'youtube', tone: '#FF2D2D' },
+  { id: 'snapchat', name: 'Snapchat', category: 'Messaging', glyph: 'Sc', logo: 'snapchat', tone: '#FACC15' },
+  { id: 'x', name: 'X', category: 'News feed', glyph: 'X', logo: 'x', tone: '#0B1220' },
+  { id: 'netflix', name: 'Netflix', category: 'Streaming', glyph: 'Nf', logo: 'netflix', tone: '#E50914' },
+  { id: 'discord', name: 'Discord', category: 'Community', glyph: 'Dc', logo: 'discord', tone: '#5865F2' },
+  { id: 'games', name: 'Games', category: 'Entertainment', glyph: 'Gm', logo: 'games', tone: '#22C55E' },
+  { id: 'custom', name: 'Custom app', category: 'Your choice', glyph: '+', logo: 'custom', tone: '#007AFF' },
 ];
 
 export const purposeExamples = [

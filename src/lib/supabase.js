@@ -1,10 +1,65 @@
 import { createClient } from '@supabase/supabase-js';
 
-const url = import.meta.env.VITE_SUPABASE_URL;
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const rawUrl = import.meta.env.VITE_SUPABASE_URL;
+const rawAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const supabase = url && anonKey ? createClient(url, anonKey) : null;
+function getProjectRefFromDashboardUrl(parsedUrl) {
+  const parts = parsedUrl.pathname.split('/').filter(Boolean);
+  const dashboardProjectIndex = parts.findIndex((part, index) => part === 'project' && index > 0);
+  const directProjectIndex = parts[0] === 'project' ? 0 : -1;
+  const projectIndex = dashboardProjectIndex >= 0 ? dashboardProjectIndex : directProjectIndex;
+  return projectIndex >= 0 ? parts[projectIndex + 1] : null;
+}
+
+function resolveSupabaseConfig(url, anonKey) {
+  const trimmedUrl = url?.trim();
+  const trimmedKey = anonKey?.trim();
+
+  if (!trimmedUrl || !trimmedKey) {
+    return {
+      url: '',
+      anonKey: trimmedKey || '',
+      error: 'Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY.',
+    };
+  }
+
+  try {
+    const parsedUrl = new URL(trimmedUrl);
+    const projectRef = getProjectRefFromDashboardUrl(parsedUrl);
+
+    if ((parsedUrl.hostname === 'supabase.com' || parsedUrl.hostname === 'app.supabase.com') && projectRef) {
+      return {
+        url: `https://${projectRef}.supabase.co`,
+        anonKey: trimmedKey,
+        warning: 'Converted Supabase dashboard URL to the project API URL.',
+      };
+    }
+
+    return {
+      url: parsedUrl.origin,
+      anonKey: trimmedKey,
+      warning:
+        parsedUrl.pathname && parsedUrl.pathname !== '/'
+          ? 'Removed the path from VITE_SUPABASE_URL. Supabase needs the project API origin only.'
+          : '',
+    };
+  } catch {
+    return {
+      url: '',
+      anonKey: trimmedKey,
+      error: 'Invalid VITE_SUPABASE_URL. Use the Project URL from Supabase Settings > API.',
+    };
+  }
+}
+
+export const supabaseConfig = resolveSupabaseConfig(rawUrl, rawAnonKey);
+export const supabase = supabaseConfig.url && supabaseConfig.anonKey && !supabaseConfig.error
+  ? createClient(supabaseConfig.url, supabaseConfig.anonKey)
+  : null;
 export const isSupabaseConfigured = Boolean(supabase);
+export const supabaseConfigError = supabaseConfig.error || '';
+export const supabaseConfigWarning = supabaseConfig.warning || '';
+export const supabaseProjectHost = supabaseConfig.url ? new URL(supabaseConfig.url).host : '';
 
 // Architecture note:
 // LoopOut is a PWA, so it cannot automatically read iOS Screen Time data from Safari.
@@ -15,8 +70,70 @@ export const isSupabaseConfigured = Boolean(supabase);
 
 function assertSupabase() {
   if (!supabase) {
-    throw new Error('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+    throw new Error(
+      supabaseConfigError || 'Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.'
+    );
   }
+}
+
+export function normalizeSupabaseError(error) {
+  const message = error?.message || String(error);
+
+  if (message.includes('Invalid path specified in request URL')) {
+    return new Error(
+      'Supabase URL is wrong. In Vercel, VITE_SUPABASE_URL must be the Project URL from Supabase Settings > API, like https://your-project-ref.supabase.co.'
+    );
+  }
+
+  if (message.includes('Failed to fetch')) {
+    return new Error('Could not reach Supabase. Check that VITE_SUPABASE_URL is the project API URL and redeploy.');
+  }
+
+  return error;
+}
+
+export function getReadableSupabaseError(error) {
+  const normalizedError = normalizeSupabaseError(error);
+  return normalizedError?.message || 'Something went wrong with Supabase.';
+}
+
+function throwSupabaseError(error) {
+  if (error) throw normalizeSupabaseError(error);
+}
+
+function isInvalidPathError(error) {
+  return (error?.message || String(error)).includes('Invalid path specified in request URL');
+}
+
+function getAuthApiError(data, fallback) {
+  return data?.msg || data?.message || data?.error_description || data?.error || fallback;
+}
+
+async function authApiRequest(path, body) {
+  assertSupabase();
+  const response = await fetch(`${supabaseConfig.url}/auth/v1/${path}`, {
+    method: 'POST',
+    headers: {
+      apikey: supabaseConfig.anonKey,
+      Authorization: `Bearer ${supabaseConfig.anonKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw normalizeSupabaseError(new Error(getAuthApiError(data, response.statusText)));
+  }
+
+  if (data?.session?.access_token && data?.session?.refresh_token) {
+    await supabase.auth.setSession({
+      access_token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
+    });
+  }
+
+  return data;
 }
 
 function getInitials(value = '') {
@@ -55,7 +172,7 @@ function minutesBetween(start, end) {
 export async function getAuthSession() {
   assertSupabase();
   const { data, error } = await supabase.auth.getSession();
-  if (error) throw error;
+  throwSupabaseError(error);
   return { session: data.session, user: data.session?.user || null };
 }
 
@@ -67,7 +184,7 @@ export function subscribeToAuthChanges(callback) {
 
 export async function signUpWithEmail({ email, password, name, city }) {
   assertSupabase();
-  const { data, error } = await supabase.auth.signUp({
+  let { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
@@ -77,7 +194,20 @@ export async function signUpWithEmail({ email, password, name, city }) {
       },
     },
   });
-  if (error) throw error;
+
+  if (error && isInvalidPathError(error)) {
+    data = await authApiRequest('signup', {
+      email,
+      password,
+      data: {
+        full_name: name,
+        city: city || 'Lisbon',
+      },
+    });
+    error = null;
+  }
+
+  throwSupabaseError(error);
 
   if (data.user && data.session) {
     await upsertProfile(data.user.id, {
@@ -93,15 +223,21 @@ export async function signUpWithEmail({ email, password, name, city }) {
 
 export async function signInWithEmail({ email, password }) {
   assertSupabase();
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) throw error;
+  let { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+  if (error && isInvalidPathError(error)) {
+    data = await authApiRequest('token?grant_type=password', { email, password });
+    error = null;
+  }
+
+  throwSupabaseError(error);
   return data;
 }
 
 export async function signOutUser() {
   assertSupabase();
   const { error } = await supabase.auth.signOut();
-  if (error) throw error;
+  throwSupabaseError(error);
 }
 
 export async function upsertProfile(userId, patch) {

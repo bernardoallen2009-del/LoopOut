@@ -11,6 +11,7 @@ import {
   CircleUserRound,
   Compass,
   Copy,
+  Gamepad2,
   Heart,
   Home,
   Library,
@@ -19,6 +20,7 @@ import {
   MapPin,
   PauseCircle,
   Play,
+  Plus,
   Search,
   Settings,
   ShieldCheck,
@@ -45,6 +47,7 @@ import {
   fetchScreenTimeLogs,
   getAuthSession,
   getInitials,
+  getReadableSupabaseError,
   isSupabaseConfigured,
   respondToFriendRequest,
   respondToInvite,
@@ -54,6 +57,9 @@ import {
   signOutUser,
   signUpWithEmail,
   subscribeToAuthChanges,
+  supabaseConfigError,
+  supabaseConfigWarning,
+  supabaseProjectHost,
   updateSessionRecord,
   upsertOfflineStatus,
   upsertProfile,
@@ -512,6 +518,140 @@ function ProgressRing({ progress, label }) {
   );
 }
 
+function AppLogo({ app, className }) {
+  const baseClass = classNames(
+    'grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-[12px] text-white shadow-sm',
+    className
+  );
+  const logo = app.logo || app.id;
+
+  if (logo === 'tiktok') {
+    return (
+      <div className={baseClass} style={{ backgroundColor: '#050505' }}>
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 48 48" className="h-8 w-8">
+          <path
+            d="M28 8.5h5c.6 4.7 3.4 7.6 7.8 8.6v5.4c-3.1-.1-5.8-1-7.9-2.8V31c0 6.4-4.8 11-11.2 11-5.7 0-10.2-3.8-10.2-9.3 0-5.9 4.7-10 11-10 .7 0 1.4.1 2.1.2v5.5c-.8-.3-1.6-.4-2.4-.4-3.1 0-5.3 1.8-5.3 4.4 0 2.4 2 4 4.6 4 3.1 0 5.1-2 5.1-5.5V8.5Z"
+            fill="#25F4EE"
+            opacity="0.9"
+            transform="translate(-2 1)"
+          />
+          <path
+            d="M28 8.5h5c.6 4.7 3.4 7.6 7.8 8.6v5.4c-3.1-.1-5.8-1-7.9-2.8V31c0 6.4-4.8 11-11.2 11-5.7 0-10.2-3.8-10.2-9.3 0-5.9 4.7-10 11-10 .7 0 1.4.1 2.1.2v5.5c-.8-.3-1.6-.4-2.4-.4-3.1 0-5.3 1.8-5.3 4.4 0 2.4 2 4 4.6 4 3.1 0 5.1-2 5.1-5.5V8.5Z"
+            fill="#FE2C55"
+            opacity="0.9"
+            transform="translate(2 -1)"
+          />
+          <path
+            d="M28 8.5h5c.6 4.7 3.4 7.6 7.8 8.6v5.4c-3.1-.1-5.8-1-7.9-2.8V31c0 6.4-4.8 11-11.2 11-5.7 0-10.2-3.8-10.2-9.3 0-5.9 4.7-10 11-10 .7 0 1.4.1 2.1.2v5.5c-.8-.3-1.6-.4-2.4-.4-3.1 0-5.3 1.8-5.3 4.4 0 2.4 2 4 4.6 4 3.1 0 5.1-2 5.1-5.5V8.5Z"
+            fill="#fff"
+          />
+        </svg>
+      </div>
+    );
+  }
+
+  if (logo === 'instagram') {
+    return (
+      <div
+        className={baseClass}
+        style={{ background: 'radial-gradient(circle at 30% 105%, #FEDA75 0 20%, #FA7E1E 38%, #D62976 58%, #962FBF 78%, #4F5BD5 100%)' }}
+      >
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 48 48" className="h-8 w-8">
+          <rect x="12.5" y="12.5" width="23" height="23" rx="7" fill="none" stroke="currentColor" strokeWidth="3.2" />
+          <circle cx="24" cy="24" r="5.5" fill="none" stroke="currentColor" strokeWidth="3.2" />
+          <circle cx="31.5" cy="16.5" r="2" fill="currentColor" />
+        </svg>
+      </div>
+    );
+  }
+
+  if (logo === 'youtube') {
+    return (
+      <div className={baseClass} style={{ backgroundColor: '#FF0033' }}>
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 48 48" className="h-8 w-8">
+          <path d="M20 16.5v15l13-7.5-13-7.5Z" fill="#fff" />
+        </svg>
+      </div>
+    );
+  }
+
+  if (logo === 'snapchat') {
+    return (
+      <div className={baseClass} style={{ backgroundColor: '#FFFC00' }}>
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 48 48" className="h-9 w-9 text-ink">
+          <path
+            d="M24 7.8c-6 0-9.6 4.2-9.6 10.4v5.3c0 1-.5 1.9-1.3 2.5l-2.7 1.8c-1 .7-.6 2.2.6 2.4l3.8.8c1.1.2 2 1.1 2.2 2.3l.2 1c.2 1.2 1.5 1.8 2.6 1.2l1.2-.6c1-.5 2-.8 3.1-.8s2.1.3 3.1.8l1.2.6c1.1.6 2.4 0 2.6-1.2l.2-1c.2-1.2 1.1-2 2.2-2.3l3.8-.8c1.2-.2 1.6-1.8.6-2.4L35 26c-.8-.6-1.3-1.5-1.3-2.5v-5.3c-.1-6.2-3.7-10.4-9.7-10.4Z"
+            fill="#fff"
+            stroke="currentColor"
+            strokeLinejoin="round"
+            strokeWidth="2"
+          />
+        </svg>
+      </div>
+    );
+  }
+
+  if (logo === 'x') {
+    return (
+      <div className={baseClass} style={{ backgroundColor: '#000' }}>
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 48 48" className="h-8 w-8">
+          <path
+            d="M29.8 11.5h5.7L26 22.4 37.2 36.5h-8.8l-6.9-8.7-7.7 8.7H8.1L18.3 25 7.6 11.5h9l6.3 7.9 6.9-7.9Zm-2 22.5h3.1L15.2 13.9h-3.3L27.8 34Z"
+            fill="#fff"
+          />
+        </svg>
+      </div>
+    );
+  }
+
+  if (logo === 'netflix') {
+    return (
+      <div className={baseClass} style={{ backgroundColor: '#111' }}>
+        <span className="text-3xl font-black text-[#E50914]" style={{ fontFamily: 'Arial Black, Impact, sans-serif' }}>
+          N
+        </span>
+      </div>
+    );
+  }
+
+  if (logo === 'discord') {
+    return (
+      <div className={baseClass} style={{ backgroundColor: '#5865F2' }}>
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 48 48" className="h-8 w-8">
+          <path
+            d="M17.2 14.4c2.1-1 4.2-1.5 6.8-1.5s4.8.5 6.9 1.5c3.7 4.9 5 10.3 4.6 15.5-2.4 1.8-4.8 2.9-7.2 3.4l-1.2-2.2c.8-.3 1.6-.7 2.3-1.1-1.7.8-3.5 1.2-5.4 1.2s-3.7-.4-5.4-1.2c.7.5 1.5.8 2.3 1.1l-1.2 2.2c-2.4-.5-4.8-1.6-7.2-3.4-.4-5.2.9-10.6 4.7-15.5Z"
+            fill="#fff"
+          />
+          <circle cx="20" cy="24" r="2.2" fill="#5865F2" />
+          <circle cx="28" cy="24" r="2.2" fill="#5865F2" />
+        </svg>
+      </div>
+    );
+  }
+
+  if (logo === 'games') {
+    return (
+      <div className={baseClass} style={{ backgroundColor: app.tone }}>
+        <Gamepad2 className="h-6 w-6" />
+      </div>
+    );
+  }
+
+  if (logo === 'custom') {
+    return (
+      <div className={baseClass} style={{ backgroundColor: app.tone }}>
+        <Plus className="h-6 w-6" />
+      </div>
+    );
+  }
+
+  return (
+    <div className={classNames(baseClass, 'text-sm font-bold')} style={{ backgroundColor: app.tone }}>
+      {app.glyph}
+    </div>
+  );
+}
+
 function AppCard({ app, selected, onClick }) {
   return (
     <button
@@ -522,12 +662,7 @@ function AppCard({ app, selected, onClick }) {
         selected ? 'border-primary ring-4 ring-primary/10' : 'border-line'
       )}
     >
-      <div
-        className="grid h-12 w-12 shrink-0 place-items-center rounded-[12px] text-sm font-bold text-white"
-        style={{ backgroundColor: app.tone }}
-      >
-        {app.glyph}
-      </div>
+      <AppLogo app={app} />
       <div className="min-w-0 flex-1">
         <p className="truncate font-semibold text-ink">{app.name}</p>
         <p className="text-sm text-muted">{app.category}</p>
@@ -1094,7 +1229,7 @@ function AuthPage({ navigate, profile, onAuthReady }) {
         setMessage('Account created. Check your email if your Supabase project requires confirmation.');
       }
     } catch (err) {
-      setError(err.message || 'Something went wrong. Try again.');
+      setError(getReadableSupabaseError(err));
     } finally {
       setSubmitting(false);
     }
@@ -1116,13 +1251,25 @@ function AuthPage({ navigate, profile, onAuthReady }) {
           <p className="mt-3 text-sm leading-6 text-muted">
             Your account, sessions, friends and privacy settings are protected with Supabase Auth and RLS.
           </p>
+          {supabaseConfigWarning ? (
+            <div className="mt-4 rounded-lg bg-[#FFF7E6] p-3 text-sm leading-6 text-[#B54708]">
+              {supabaseConfigWarning} Update Vercel later to use the clean Project URL.
+            </div>
+          ) : null}
           {message ? (
             <div className="mt-4 rounded-lg bg-[#E8F8EF] p-3 text-sm leading-6 text-[#137A3D]">{message}</div>
           ) : null}
           {error ? (
             <div className="mt-4 flex gap-2 rounded-lg bg-[#FFF1F0] p-3 text-sm leading-6 text-[#B42318]">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{error}</span>
+              <span>
+                {error}
+                {error.includes('Supabase URL') ? (
+                  <span className="mt-2 block text-xs leading-5 text-[#B42318]/80">
+                    Current detected Supabase host: {supabaseProjectHost || 'missing'}. It should end in supabase.co.
+                  </span>
+                ) : null}
+              </span>
             </div>
           ) : null}
           <form className="mt-6 space-y-4" onSubmit={submit}>
@@ -1382,12 +1529,7 @@ function PurposePage({ navigate, draft, setDraft }) {
       />
       <div className="rounded-lg border border-line bg-white p-5 shadow-soft">
         <div className="flex items-center gap-3">
-          <div
-            className="grid h-12 w-12 shrink-0 place-items-center rounded-[12px] text-sm font-bold text-white"
-            style={{ backgroundColor: app.tone }}
-          >
-            {app.glyph}
-          </div>
+          <AppLogo app={app} />
           <div>
             <p className="text-sm font-medium text-muted">Opening {app.name}</p>
             <h1 className="text-2xl font-semibold leading-tight text-ink">Name the reason first.</h1>
@@ -1465,12 +1607,7 @@ function TimerPage({ navigate, draft, setDraft, settings, startSession }) {
 
       <section className="rounded-lg border border-line bg-white p-5 shadow-sm">
         <div className="flex items-center gap-3">
-          <div
-            className="grid h-12 w-12 place-items-center rounded-[12px] text-sm font-bold text-white"
-            style={{ backgroundColor: app.tone }}
-          >
-            {app.glyph}
-          </div>
+          <AppLogo app={app} />
           <div>
             <p className="font-semibold text-ink">{app.name}</p>
             <p className="text-sm text-muted">{draft.purpose}</p>
@@ -1587,12 +1724,7 @@ function ActiveTimerPage({ navigate, session, setSession, now, onSessionLock }) 
     <>
       <PageHeader title="Session active" subtitle="Stay with your purpose." navigate={navigate} backTo="/dashboard" />
       <section className="rounded-lg border border-line bg-white p-5 text-center shadow-soft">
-        <div
-          className="mx-auto grid h-14 w-14 place-items-center rounded-[14px] text-sm font-bold text-white"
-          style={{ backgroundColor: app.tone }}
-        >
-          {app.glyph}
-        </div>
+        <AppLogo app={app} className="mx-auto h-14 w-14 rounded-[14px]" />
         <p className="mt-4 text-sm font-medium text-muted">{app.name}</p>
         <h1 className="mt-1 text-2xl font-semibold text-ink">{session.purpose}</h1>
         <div className="mt-8 flex justify-center">
@@ -2247,7 +2379,6 @@ function SettingsPage({
   settings,
   setSettings,
   isRemote,
-  backendConfigured,
   onSaveProfile,
   onSavePrivacy,
   onLogout,
@@ -2309,22 +2440,6 @@ function SettingsPage({
   return (
     <>
       <PageHeader title="Settings" subtitle="Tune LoopOut to your habits." navigate={navigate} backTo="/dashboard" />
-
-      <SettingsGroup title="Launch readiness" icon={ShieldCheck}>
-        <ReadinessRow
-          ready={backendConfigured}
-          label="Secure backend"
-          detail={
-            backendConfigured
-              ? 'Supabase environment variables are configured.'
-              : 'This runtime is missing VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.'
-          }
-        />
-        <ReadinessRow ready label="Database schema" detail="Tables, RLS policies, seeds and indexes are included in supabase/schema.sql." />
-        <ReadinessRow ready label="PWA install" detail="Manifest, icons and service worker are configured for Home Screen install." />
-        <ReadinessRow ready label="iPhone Shortcuts" detail="The setup page creates a session URL for app-open automations." />
-        <ReadinessRow ready label="Screen Time limitation" detail="Analytics use LoopOut activity; iPhone Screen Time is manual until a native iOS app exists." />
-      </SettingsGroup>
 
       <SettingsGroup title="Profile" icon={CircleUserRound}>
         <Field label="Name" value={profile.name} onChange={(value) => updateProfile('name', value)} />
@@ -2463,25 +2578,6 @@ function SettingsGroup({ title, icon: Icon, children }) {
   );
 }
 
-function ReadinessRow({ ready, label, detail }) {
-  return (
-    <div className="flex items-start gap-3 rounded-lg bg-canvas p-3">
-      <div
-        className={classNames(
-          'mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full',
-          ready ? 'bg-[#E8F8EF] text-[#137A3D]' : 'bg-[#FFF7E6] text-[#B54708]'
-        )}
-      >
-        {ready ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
-      </div>
-      <div className="min-w-0">
-        <p className="text-sm font-semibold text-ink">{label}</p>
-        <p className="mt-1 text-xs leading-5 text-muted">{detail}</p>
-      </div>
-    </div>
-  );
-}
-
 function SelectRow({ label, value, options, suffix, onChange }) {
   return (
     <label className="flex items-center justify-between gap-3">
@@ -2604,8 +2700,8 @@ function BackendRequiredScreen({ navigate }) {
           <p className="mt-5 text-sm font-semibold uppercase tracking-[0.12em] text-primary">Supabase required</p>
           <h1 className="mt-2 text-3xl font-semibold leading-tight text-ink">LoopOut is ready for the real backend.</h1>
           <p className="mt-3 text-sm leading-6 text-muted">
-            This environment does not expose the Supabase variables yet. In Vercel, add the production variables and
-            redeploy so accounts, friends, sessions and analytics use the database.
+            {supabaseConfigError ||
+              'This environment does not expose the Supabase variables yet. In Vercel, add the production variables and redeploy so accounts, friends, sessions and analytics use the database.'}
           </p>
           <div className="mt-5 space-y-2 rounded-lg bg-canvas p-3 text-sm text-muted">
             <p className="font-semibold text-ink">Required variables</p>
@@ -3099,7 +3195,6 @@ export default function App() {
             settings={settings}
             setSettings={setSettings}
             isRemote={isRemote}
-            backendConfigured={isSupabaseConfigured}
             onSaveProfile={saveProfile}
             onSavePrivacy={savePrivacy}
             onLogout={logout}

@@ -16,6 +16,8 @@ VITE_SUPABASE_URL=
 VITE_SUPABASE_ANON_KEY=
 ```
 
+`VITE_SUPABASE_URL` must be the **Project URL** from Supabase **Settings > API**, for example `https://your-project-ref.supabase.co`. Do not use the dashboard URL.
+
 7. Deploy with Vercel using the existing `vercel.json`.
 
 ## Current MVP Scope

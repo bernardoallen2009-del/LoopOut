@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  AlertCircle,
   ArrowRight,
   BarChart3,
   Bell,
   BookOpen,
+  Calendar,
   CheckCircle2,
   ChevronLeft,
   CircleUserRound,
@@ -12,10 +14,12 @@ import {
   Heart,
   Home,
   Library,
+  LogOut,
   LockKeyhole,
   MapPin,
   PauseCircle,
   Play,
+  Search,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
@@ -23,21 +27,45 @@ import {
   Sparkles,
   Timer,
   Trees,
+  UploadCloud,
+  UserPlus,
   Users,
   X,
 } from 'lucide-react';
-import { isSupabaseConfigured } from './lib/supabase';
+import {
+  createInviteRecord,
+  createScreenTimeLog,
+  createSessionRecord,
+  fetchActiveSession,
+  fetchFriends,
+  fetchInvites,
+  fetchPlaces,
+  fetchProfile,
+  fetchProgressSnapshot,
+  fetchScreenTimeLogs,
+  getAuthSession,
+  getInitials,
+  isSupabaseConfigured,
+  respondToFriendRequest,
+  respondToInvite,
+  searchProfiles,
+  sendFriendRequest,
+  signInWithEmail,
+  signOutUser,
+  signUpWithEmail,
+  subscribeToAuthChanges,
+  updateSessionRecord,
+  upsertOfflineStatus,
+  upsertProfile,
+} from './lib/supabase';
 import {
   appOptions,
-  demoFriends,
   lisbonPlaces,
   lockDurations,
   onboardingSlides,
   purposeExamples,
   quickTimers,
-  sessionsByApp,
   setupSteps,
-  weeklySaved,
 } from './data';
 
 const storageKeys = {
@@ -46,14 +74,17 @@ const storageKeys = {
   session: 'loopout.session',
   draft: 'loopout.sessionDraft',
   invites: 'loopout.invites',
+  screenTimeLogs: 'loopout.screenTimeLogs',
   onboarded: 'loopout.onboarded',
 };
 
 const defaultProfile = {
-  name: 'Bernardo',
-  email: 'bernardo@example.com',
+  name: 'You',
+  email: '',
+  username: '',
   city: 'Lisbon',
-  avatar: 'B',
+  area: '',
+  avatar: 'L',
 };
 
 const defaultSettings = {
@@ -64,6 +95,8 @@ const defaultSettings = {
   showLockedApp: true,
   allowInvites: true,
   shareArea: true,
+  allowFriendRequests: true,
+  hideProfileFromSearch: false,
 };
 
 function readStorage(key, fallback) {
@@ -120,6 +153,8 @@ function classNames(...items) {
 }
 
 function getGoogleMapsUrl(place) {
+  if (place.mapsUrl) return place.mapsUrl;
+
   if (place.coordinates) {
     return `https://www.google.com/maps/search/?api=1&query=${place.coordinates.lat},${place.coordinates.lng}`;
   }
@@ -196,6 +231,193 @@ function formatTime(timestamp) {
 
 function getAppById(appId) {
   return appOptions.find((app) => app.id === appId) || appOptions[1];
+}
+
+function getSessionApp(session) {
+  if (!session) return null;
+  const app = getAppById(session.appId);
+  return session.appName ? { ...app, name: session.appName } : app;
+}
+
+function dateMs(value) {
+  return value ? new Date(value).getTime() : null;
+}
+
+function isoFromMs(value) {
+  return value ? new Date(value).toISOString() : null;
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value || '');
+}
+
+function formatMinutes(minutes) {
+  const safeMinutes = Math.max(0, Math.round(Number(minutes) || 0));
+  if (safeMinutes < 60) return `${safeMinutes} min`;
+  const hours = Math.floor(safeMinutes / 60);
+  const rest = safeMinutes % 60;
+  return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
+function formatDate(value) {
+  if (!value) return '';
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value));
+}
+
+function todayInputValue() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function profileFromRow(row, user) {
+  const name = row?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'LoopOut user';
+  return {
+    id: row?.id || user?.id,
+    name,
+    email: row?.email || user?.email || '',
+    username: row?.username || '',
+    city: row?.city || 'Lisbon',
+    area: row?.area || '',
+    avatar: row?.avatar_url ? null : getInitials(name),
+    avatarUrl: row?.avatar_url || '',
+    privacy: {
+      showOfflineStatus: row?.show_offline_status ?? true,
+      showLockedApp: row?.show_locked_app ?? true,
+      shareArea: row?.show_area ?? true,
+      allowInvites: row?.allow_offline_invites ?? true,
+      allowFriendRequests: row?.allow_friend_requests ?? true,
+      hideProfileFromSearch: row?.hide_profile_from_search ?? false,
+    },
+  };
+}
+
+function sessionFromRecord(row) {
+  if (!row) return null;
+  const app = appOptions.find((item) => item.name === row.app_name) || appOptions.find((item) => item.id === 'custom');
+  const startedAt = dateMs(row.started_at) || Date.now();
+  const timerMinutes = Number(row.timer_minutes || 10);
+  return {
+    id: row.id,
+    remoteId: row.id,
+    appId: app?.id || 'custom',
+    appName: row.app_name,
+    purpose: row.purpose || '',
+    timerMinutes,
+    lockDurationMinutes: Number(row.lock_minutes || 30),
+    startedAt,
+    endsAt: startedAt + minutesToMs(timerMinutes),
+    endedAt: dateMs(row.ended_at),
+    lockStartedAt: dateMs(row.lock_started_at),
+    lockEndsAt: dateMs(row.lock_ends_at),
+    status: row.status,
+    completedAt: row.status === 'completed' ? dateMs(row.lock_ends_at) || dateMs(row.ended_at) : null,
+  };
+}
+
+function placeFromRecord(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type,
+    area: row.area,
+    description: row.description,
+    activity: row.suggested_activity || 'Phone-free moment',
+    suggestion: row.suggested_activity || 'Keep phones away and stay present.',
+    score: row.phone_free_score || 3,
+    mapsUrl: row.maps_url,
+    coordinates:
+      row.latitude && row.longitude ? { lat: Number(row.latitude), lng: Number(row.longitude) } : null,
+  };
+}
+
+function screenTimeLogFromRecord(row) {
+  return {
+    id: row.id,
+    date: row.date,
+    totalScreenTimeMinutes: row.total_screen_time_minutes,
+    socialMediaMinutes: row.social_media_minutes,
+    mostUsedApp: row.most_used_app || '',
+    notes: row.notes || '',
+  };
+}
+
+function friendFromBundle(item) {
+  const profile = item.profile;
+  const status = item.offlineStatus;
+  const name = profile.full_name || profile.username || profile.email || 'LoopOut friend';
+  const isOffline = Boolean(status?.is_offline);
+  const lockEndsAt = dateMs(status?.lock_ends_at);
+  const endingSoon = isOffline && lockEndsAt && lockEndsAt - Date.now() < minutesToMs(15);
+
+  return {
+    id: profile.id,
+    name,
+    username: profile.username,
+    avatar: getInitials(name),
+    status: isOffline ? (endingSoon ? `Lock ending at ${formatTime(lockEndsAt)}` : `Offline until ${formatTime(lockEndsAt)}`) : 'Available now',
+    lockedApp: status?.locked_app ? `${status.locked_app} locked` : 'App hidden',
+    area: status?.area || profile.area || profile.city || 'Lisbon',
+    available: isOffline,
+    isOffline,
+    school: profile.area || profile.city || 'Lisbon',
+  };
+}
+
+function friendRequestFromBundle(item) {
+  const profile = item.profile;
+  const name = profile.full_name || profile.username || profile.email || 'LoopOut user';
+  return {
+    id: item.friendship.id,
+    direction: item.direction,
+    requesterId: item.friendship.requester_id,
+    receiverId: item.friendship.receiver_id,
+    name,
+    username: profile.username,
+    avatar: getInitials(name),
+  };
+}
+
+function suggestedTimeToIso(option) {
+  const date = new Date();
+  if (option === 'In 15 minutes') date.setMinutes(date.getMinutes() + 15);
+  if (option === 'In 30 minutes') date.setMinutes(date.getMinutes() + 30);
+  if (option === 'Later today') date.setHours(19, 0, 0, 0);
+  return date.toISOString();
+}
+
+function fallbackProgressSnapshot(session, invites, screenTimeLogs) {
+  const nowMs = Date.now();
+  const completed = session?.status === 'completed';
+  const lockedOrCompleted = session?.status === 'locked' || completed;
+  const usedMinutes = session
+    ? Math.max(0, Math.round(((session.endedAt || Math.min(nowMs, session.endsAt || nowMs)) - session.startedAt) / 60000))
+    : 0;
+  const lockMinutes = lockedOrCompleted ? Number(session.lockDurationMinutes || 0) : 0;
+  const app = session ? getSessionApp(session) : null;
+  const purposeWord = (session?.purpose || '')
+    .toLowerCase()
+    .match(/[a-z0-9]{4,}/g)
+    ?.find((word) => !['with', 'from', 'then', 'this', 'that', 'para', 'mais'].includes(word));
+
+  return {
+    completedSessions: completed ? 1 : 0,
+    totalIntentionalMinutes: usedMinutes,
+    totalLockMinutes: lockMinutes,
+    mostUsedApp: app?.name || 'None yet',
+    mostCommonPurpose: purposeWord || 'None yet',
+    weeklySaved: [0, 0, 0, 0, 0, 0, lockMinutes],
+    currentStreak: completed ? 1 : 0,
+    invitesSent: invites.length,
+    invitesAccepted: invites.filter((invite) => invite.status === 'accepted').length,
+    estimatedTimeSaved: lockMinutes,
+    sessionsByApp: app ? [{ label: app.name, value: 100 }] : [],
+    latestScreenTime: screenTimeLogs[0] || null,
+    today: {
+      completedSessions: completed ? 1 : 0,
+      intentionalMinutes: usedMinutes,
+      lockMinutes,
+    },
+  };
 }
 
 function Button({ children, variant = 'primary', className, icon: Icon, disabled, ...props }) {
@@ -322,7 +544,9 @@ function AppCard({ app, selected, onClick }) {
   );
 }
 
-function FriendCard({ friend, onInvite, privacyOn }) {
+function FriendCard({ friend, onInvite, privacyOn, shareArea = true }) {
+  const statusLabel = friend.isOffline ? 'Offline now' : friend.available ? 'Available' : 'Recent';
+
   return (
     <div className="rounded-lg border border-line bg-white p-4 shadow-sm">
       <div className="flex items-start gap-3">
@@ -333,13 +557,13 @@ function FriendCard({ friend, onInvite, privacyOn }) {
           <div className="flex items-center justify-between gap-2">
             <p className="font-semibold text-ink">{friend.name}</p>
             <span className="rounded-full bg-[#E8F8EF] px-2.5 py-1 text-xs font-medium text-[#137A3D]">
-              {friend.available ? 'Available' : 'Offline'}
+              {statusLabel}
             </span>
           </div>
-          <p className="mt-1 text-sm text-muted">{friend.status}</p>
+          <p className="mt-1 text-sm text-muted">{friend.username ? `@${friend.username} · ` : ''}{friend.status}</p>
           <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted">
             <span className="rounded-full bg-soft px-2.5 py-1">{privacyOn ? friend.lockedApp : 'App hidden'}</span>
-            <span className="rounded-full bg-soft px-2.5 py-1">{friend.area}</span>
+            <span className="rounded-full bg-soft px-2.5 py-1">{shareArea ? friend.area : 'Area hidden'}</span>
           </div>
         </div>
       </div>
@@ -498,11 +722,14 @@ function PhoneFreeMap({ places }) {
   );
 }
 
-function InviteModal({ friend, place, onClose, onSend }) {
-  const [selectedFriend, setSelectedFriend] = useState(friend?.id || demoFriends[0].id);
-  const [selectedPlace, setSelectedPlace] = useState(place?.id || lisbonPlaces[0].id);
+function InviteModal({ friend, place, friends = [], places = [], onClose, onSend, sending }) {
+  const friendOptions = friends.length ? friends : [];
+  const placeOptions = places.length ? places : lisbonPlaces;
+  const [selectedFriend, setSelectedFriend] = useState(friend?.id || friendOptions[0]?.id || '');
+  const [selectedPlace, setSelectedPlace] = useState(place?.id || placeOptions[0]?.id || '');
   const [time, setTime] = useState('Now');
   const [message, setMessage] = useState('Hey, we both finished our screen time. Want to go offline together?');
+  const canSend = Boolean(selectedFriend && selectedPlace && !sending);
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-end bg-ink/25 p-3 backdrop-blur-sm sm:place-items-center">
@@ -522,20 +749,26 @@ function InviteModal({ friend, place, onClose, onSend }) {
           </button>
         </div>
         <div className="mt-5 space-y-4">
-          <label className="block">
-            <span className="text-sm font-medium text-ink">Choose friend</span>
-            <select
-              className="mt-2 w-full rounded-lg border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-primary"
-              value={selectedFriend}
-              onChange={(event) => setSelectedFriend(event.target.value)}
-            >
-              {demoFriends.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          {friendOptions.length ? (
+            <label className="block">
+              <span className="text-sm font-medium text-ink">Choose friend</span>
+              <select
+                className="mt-2 w-full rounded-lg border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-primary"
+                value={selectedFriend}
+                onChange={(event) => setSelectedFriend(event.target.value)}
+              >
+                {friendOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <div className="rounded-lg bg-soft p-3 text-sm leading-6 text-deep">
+              Add friends first to send offline invites.
+            </div>
+          )}
           <label className="block">
             <span className="text-sm font-medium text-ink">Choose place</span>
             <select
@@ -543,7 +776,7 @@ function InviteModal({ friend, place, onClose, onSend }) {
               value={selectedPlace}
               onChange={(event) => setSelectedPlace(event.target.value)}
             >
-              {lisbonPlaces.map((item) => (
+              {placeOptions.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
                 </option>
@@ -580,9 +813,10 @@ function InviteModal({ friend, place, onClose, onSend }) {
         <Button
           className="mt-5 w-full"
           icon={ArrowRight}
+          disabled={!canSend}
           onClick={() => onSend({ friendId: selectedFriend, placeId: selectedPlace, time, message })}
         >
-          Send invite
+          {sending ? 'Sending...' : 'Send invite'}
         </Button>
       </div>
     </div>
@@ -621,7 +855,7 @@ function HeroPhone() {
             <p className="mt-1 text-xs text-white/75">Take 30 minutes away from the loop.</p>
           </div>
           <div className="mt-3 space-y-2">
-            {['Tomas offline', 'Maria nearby', 'Gulbenkian walk'].map((item) => (
+            {['Friend offline', 'Nearby invite', 'Gulbenkian walk'].map((item) => (
               <div key={item} className="flex items-center gap-2 rounded-lg bg-white p-2 shadow-sm">
                 <div className="h-7 w-7 rounded-full bg-soft" />
                 <span className="text-xs font-medium text-ink">{item}</span>
@@ -818,8 +1052,11 @@ function Onboarding({ navigate, setOnboarded }) {
   );
 }
 
-function AuthPage({ navigate, profile, setProfile }) {
+function AuthPage({ navigate, profile, onAuthReady }) {
   const [mode, setMode] = useState('signup');
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
   const [form, setForm] = useState({
     name: profile.name || '',
     email: profile.email || '',
@@ -827,16 +1064,40 @@ function AuthPage({ navigate, profile, setProfile }) {
     city: profile.city || 'Lisbon',
   });
 
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
-    const name = form.name.trim() || 'Bernardo';
-    setProfile({
-      name,
-      email: form.email.trim() || 'bernardo@example.com',
-      city: form.city.trim() || 'Lisbon',
-      avatar: name.charAt(0).toUpperCase(),
-    });
-    navigate('/dashboard');
+    setSubmitting(true);
+    setMessage('');
+    setError('');
+
+    const name = form.name.trim() || 'LoopOut user';
+    const email = form.email.trim();
+
+    try {
+      if (!isSupabaseConfigured) {
+        throw new Error('Supabase is not connected in this environment.');
+      }
+
+      if (!email || !form.password) {
+        throw new Error('Add your email and password.');
+      }
+
+      const result =
+        mode === 'signup'
+          ? await signUpWithEmail({ email, password: form.password, name, city: form.city.trim() || 'Lisbon' })
+          : await signInWithEmail({ email, password: form.password });
+
+      if (result.session || mode === 'login') {
+        await onAuthReady?.(result.user);
+        navigate('/dashboard');
+      } else {
+        setMessage('Account created. Check your email if your Supabase project requires confirmation.');
+      }
+    } catch (err) {
+      setError(err.message || 'Something went wrong. Try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -847,16 +1108,23 @@ function AuthPage({ navigate, profile, setProfile }) {
         </button>
         <div className="rounded-lg border border-line bg-white p-5 shadow-soft">
           <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">
-            {isSupabaseConfigured ? 'Supabase Auth ready' : 'Demo mode'}
+            Secure account
           </p>
           <h1 className="mt-2 text-3xl font-semibold text-ink">
             {mode === 'signup' ? 'Create your LoopOut account.' : 'Welcome back.'}
           </h1>
           <p className="mt-3 text-sm leading-6 text-muted">
-            {isSupabaseConfigured
-              ? 'This build can connect to Supabase with the configured project keys.'
-              : 'Your profile is saved locally for the product demo.'}
+            Your account, sessions, friends and privacy settings are protected with Supabase Auth and RLS.
           </p>
+          {message ? (
+            <div className="mt-4 rounded-lg bg-[#E8F8EF] p-3 text-sm leading-6 text-[#137A3D]">{message}</div>
+          ) : null}
+          {error ? (
+            <div className="mt-4 flex gap-2 rounded-lg bg-[#FFF1F0] p-3 text-sm leading-6 text-[#B42318]">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          ) : null}
           <form className="mt-6 space-y-4" onSubmit={submit}>
             {mode === 'signup' ? (
               <Field label="Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
@@ -876,8 +1144,8 @@ function AuthPage({ navigate, profile, setProfile }) {
             {mode === 'signup' ? (
               <Field label="City" value={form.city} onChange={(value) => setForm({ ...form, city: value })} />
             ) : null}
-            <Button className="w-full" icon={ArrowRight} onClick={submit}>
-              {mode === 'signup' ? 'Sign up' : 'Log in'}
+            <Button className="w-full" icon={ArrowRight} disabled={submitting} type="submit">
+              {submitting ? 'Please wait...' : mode === 'signup' ? 'Sign up' : 'Log in'}
             </Button>
           </form>
           <button
@@ -949,11 +1217,20 @@ function AppShell({ children, navigate, path, session }) {
   );
 }
 
-function Dashboard({ navigate, profile, session, now }) {
+function Dashboard({ navigate, profile, session, now, stats, friends = [], invites = [], loading, isRemote }) {
   const active = session?.status === 'active';
   const locked = session?.status === 'locked';
-  const currentApp = session ? getAppById(session.appId) : null;
+  const currentApp = session ? getSessionApp(session) : null;
   const remaining = active ? session.endsAt - now : locked ? session.lockEndsAt - now : 0;
+  const today = stats?.today || {};
+  const offlineFriends = friends.filter((friend) => friend.isOffline || friend.available).length;
+  const pendingInvites = invites.filter((invite) => invite.status === 'pending' || invite.status === 'sent').length;
+  const todayCards = [
+    ['Intentional sessions', loading ? '...' : String(today.completedSessions ?? 0)],
+    ['Intentional minutes', loading ? '...' : formatMinutes(today.intentionalMinutes ?? 0)],
+    ['Lock minutes', loading ? '...' : formatMinutes(today.lockMinutes ?? 0)],
+    ['Friends offline', loading ? '...' : String(offlineFriends)],
+  ];
 
   return (
     <>
@@ -978,12 +1255,7 @@ function Dashboard({ navigate, profile, session, now }) {
           <Sparkles className="h-6 w-6 text-primary" />
         </div>
         <div className="mt-5 grid grid-cols-2 gap-3">
-          {[
-            ['Intentional sessions', '3'],
-            ['Time saved', '42 min'],
-            ['Apps locked', '2'],
-            ['Friends offline', '4'],
-          ].map(([label, value]) => (
+          {todayCards.map(([label, value]) => (
             <div className="rounded-lg bg-white/80 p-3" key={label}>
               <p className="text-2xl font-semibold text-ink">{value}</p>
               <p className="text-xs text-muted">{label}</p>
@@ -1008,6 +1280,18 @@ function Dashboard({ navigate, profile, session, now }) {
       </section>
 
       <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        {pendingInvites > 0 ? (
+          <button
+            type="button"
+            className="mb-4 flex w-full items-center justify-between rounded-lg bg-soft p-3 text-left"
+            onClick={() => navigate('/friends')}
+          >
+            <span className="text-sm font-semibold text-deep">
+              {pendingInvites} pending offline invite{pendingInvites === 1 ? '' : 's'}
+            </span>
+            <ArrowRight className="h-4 w-4 text-primary" />
+          </button>
+        ) : null}
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-sm font-medium text-muted">Current lock</p>
@@ -1050,6 +1334,7 @@ function Dashboard({ navigate, profile, session, now }) {
           </div>
         ) : null}
       </section>
+
     </>
   );
 }
@@ -1269,12 +1554,12 @@ function NumberField({ label, value, min, max, onChange }) {
   );
 }
 
-function ActiveTimerPage({ navigate, session, setSession, now }) {
+function ActiveTimerPage({ navigate, session, setSession, now, onSessionLock }) {
   if (!session || session.status !== 'active') {
     return <EmptyState navigate={navigate} title="No active timer" action="Start a session" path="/session/select-app" />;
   }
 
-  const app = getAppById(session.appId);
+  const app = getSessionApp(session);
   const total = session.endsAt - session.startedAt;
   const remaining = Math.max(0, session.endsAt - now);
   const progress = total > 0 ? (now - session.startedAt) / total : 0;
@@ -1282,6 +1567,13 @@ function ActiveTimerPage({ navigate, session, setSession, now }) {
   const startLock = () => {
     const lockStartedAt = Date.now();
     setSession({
+      ...session,
+      status: 'locked',
+      endedAt: lockStartedAt,
+      lockStartedAt,
+      lockEndsAt: lockStartedAt + minutesToMs(session.lockDurationMinutes),
+    });
+    onSessionLock?.({
       ...session,
       status: 'locked',
       endedAt: lockStartedAt,
@@ -1324,7 +1616,7 @@ function LockedPage({ navigate, session, now }) {
     return <EmptyState navigate={navigate} title="No active lock" action="Start a session" path="/session/select-app" />;
   }
 
-  const app = getAppById(session.appId);
+  const app = getSessionApp(session);
   const remaining = Math.max(0, session.lockEndsAt - now);
   const timeUsed = formatShort((session.endedAt || session.lockStartedAt) - session.startedAt);
 
@@ -1394,43 +1686,288 @@ function EmptyState({ navigate, title, action, path }) {
   );
 }
 
-function FriendsPage({ navigate, settings, openInvite }) {
+function SkeletonStack({ count = 3 }) {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: count }).map((_, index) => (
+        <div className="rounded-lg border border-line bg-white p-4 shadow-sm" key={index}>
+          <div className="flex animate-pulse gap-3">
+            <div className="h-11 w-11 rounded-full bg-soft" />
+            <div className="flex-1 space-y-3">
+              <div className="h-4 w-2/3 rounded-full bg-soft" />
+              <div className="h-3 w-full rounded-full bg-canvas" />
+              <div className="h-3 w-1/2 rounded-full bg-canvas" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FriendsPage({
+  navigate,
+  settings,
+  openInvite,
+  friends = [],
+  requests = [],
+  invites = [],
+  currentUserId,
+  isRemote,
+  loading,
+  onSearch,
+  onSendFriendRequest,
+  onRespondFriendRequest,
+  onRespondInvite,
+}) {
   const [filter, setFilter] = useState('Available now');
-  const filteredFriends = demoFriends.filter((friend) => {
+  const [query, setQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [actionMessage, setActionMessage] = useState('');
+  const [actionError, setActionError] = useState('');
+  const visibleFriends = friends;
+  const pendingOfflineInvites = invites.filter((invite) => invite.status === 'pending');
+  const filteredFriends = visibleFriends.filter((friend) => {
     if (filter === 'Available now') return friend.available;
     if (filter === 'Nearby') return ['Campo Grande', 'Saldanha', 'Chiado'].includes(friend.area);
     if (filter === 'Same school/university') return friend.school.includes('Universidade') || friend.school === 'IST';
     return true;
   });
 
+  const runSearch = async () => {
+    if (!onSearch || query.trim().length < 2) return;
+    setSearching(true);
+    setActionError('');
+    setActionMessage('');
+    try {
+      setSearchResults(await onSearch(query));
+      setHasSearched(true);
+    } catch (err) {
+      setActionError(err.message || 'Could not search right now.');
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const sendRequest = async (profileId) => {
+    setActionError('');
+    setActionMessage('');
+    try {
+      await onSendFriendRequest(profileId);
+      setActionMessage('Friend request sent.');
+      setSearchResults((items) => items.filter((item) => item.id !== profileId));
+    } catch (err) {
+      setActionError(err.message || 'Could not send friend request.');
+    }
+  };
+
+  const respond = async (request, status) => {
+    setActionError('');
+    setActionMessage('');
+    try {
+      await onRespondFriendRequest(request.id, status);
+      setActionMessage(status === 'accepted' ? 'Friend request accepted.' : 'Friend request declined.');
+    } catch (err) {
+      setActionError(err.message || 'Could not update the request.');
+    }
+  };
+
+  const respondOfflineInvite = async (invite, status) => {
+    setActionError('');
+    setActionMessage('');
+    try {
+      await onRespondInvite(invite.id, status);
+      setActionMessage(status === 'accepted' ? 'Offline invite accepted.' : 'Offline invite updated.');
+    } catch (err) {
+      setActionError(err.message || 'Could not update the invite.');
+    }
+  };
+
   return (
     <>
       <PageHeader title="Friends also offline" subtitle="You're not disconnecting alone." navigate={navigate} backTo="/dashboard" />
-      <div className="flex gap-2 overflow-x-auto pb-3">
-        {['Available now', 'Nearby', 'Same school/university', 'Offline today'].map((item) => (
-          <button
-            type="button"
-            className={classNames(
-              'min-h-10 shrink-0 rounded-full border px-4 text-sm font-semibold',
-              filter === item ? 'border-primary bg-primary text-white' : 'border-line bg-white text-ink'
-            )}
-            key={item}
-            onClick={() => setFilter(item)}
-          >
-            {item}
-          </button>
-        ))}
-      </div>
-      <div className="space-y-3">
-        {filteredFriends.map((friend) => (
-          <FriendCard
-            friend={friend}
-            key={friend.id}
-            privacyOn={settings.showLockedApp}
-            onInvite={(item) => openInvite(item, null)}
-          />
-        ))}
-      </div>
+
+      {!isRemote ? (
+        <section className="mb-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+          <div className="grid h-11 w-11 place-items-center rounded-full bg-soft text-primary">
+            <UserPlus className="h-5 w-5" />
+          </div>
+          <h2 className="mt-4 text-xl font-semibold text-ink">Sign in to add friends.</h2>
+          <p className="mt-2 text-sm leading-6 text-muted">
+            Friends are powered by Supabase. Search by username or email, send requests, and share offline status only
+            with accepted friends.
+          </p>
+          <Button className="mt-4 w-full" variant="soft" icon={Settings} onClick={() => navigate('/settings')}>
+            View launch setup
+          </Button>
+        </section>
+      ) : null}
+
+      {isRemote ? (
+        <section className="mb-4 rounded-lg border border-line bg-white p-4 shadow-sm">
+          <div className="flex items-center gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+              <input
+                className="min-h-12 w-full rounded-lg border border-line bg-canvas pl-9 pr-3 text-base text-ink outline-none focus:border-primary focus:bg-white"
+                placeholder="Search username or email"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') runSearch();
+                }}
+              />
+            </div>
+            <Button className="px-4" icon={Search} disabled={searching || query.trim().length < 2} onClick={runSearch}>
+              {searching ? 'Searching' : 'Search'}
+            </Button>
+          </div>
+          {actionMessage ? <p className="mt-3 rounded-lg bg-[#E8F8EF] p-3 text-sm text-[#137A3D]">{actionMessage}</p> : null}
+          {actionError ? <p className="mt-3 rounded-lg bg-[#FFF1F0] p-3 text-sm text-[#B42318]">{actionError}</p> : null}
+          {searchResults.length ? (
+            <div className="mt-3 space-y-2">
+              {searchResults.map((item) => {
+                const name = item.full_name || item.username || item.email;
+                return (
+                  <div className="flex items-center gap-3 rounded-lg bg-canvas p-3" key={item.id}>
+                    <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white font-semibold text-deep">
+                      {getInitials(name)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-ink">{name}</p>
+                      <p className="truncate text-xs text-muted">{item.username ? `@${item.username}` : item.email}</p>
+                    </div>
+                    <Button variant="soft" className="px-3" icon={UserPlus} onClick={() => sendRequest(item.id)}>
+                      Add
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : hasSearched && !searching ? (
+            <p className="mt-3 rounded-lg bg-canvas p-3 text-sm leading-6 text-muted">
+              No visible LoopOut profile matched that search. Try a username or email.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
+      {isRemote && requests.length ? (
+        <section className="mb-4 rounded-lg border border-line bg-white p-4 shadow-sm">
+          <h2 className="font-semibold text-ink">Friend requests</h2>
+          <div className="mt-3 space-y-2">
+            {requests.map((request) => (
+              <div className="rounded-lg bg-canvas p-3" key={request.id}>
+                <div className="flex items-center gap-3">
+                  <div className="grid h-9 w-9 place-items-center rounded-full bg-white font-semibold text-deep">
+                    {request.avatar}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-ink">{request.name}</p>
+                    <p className="text-xs text-muted">
+                      {request.direction === 'received' ? 'Wants to go offline together' : 'Request sent'}
+                    </p>
+                  </div>
+                </div>
+                {request.direction === 'received' ? (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <Button variant="soft" onClick={() => respond(request, 'accepted')}>
+                      Accept
+                    </Button>
+                    <Button variant="secondary" onClick={() => respond(request, 'declined')}>
+                      Decline
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {isRemote && pendingOfflineInvites.length ? (
+        <section className="mb-4 rounded-lg border border-line bg-white p-4 shadow-sm">
+          <h2 className="font-semibold text-ink">Offline invites</h2>
+          <div className="mt-3 space-y-2">
+            {pendingOfflineInvites.map((invite) => {
+              const incoming = invite.receiver_id === currentUserId;
+              return (
+                <div className="rounded-lg bg-canvas p-3" key={invite.id}>
+                  <p className="text-sm font-semibold text-ink">
+                    {incoming ? 'New invite' : 'Invite sent'} · {invite.place?.name || 'Phone-free place'}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-muted">
+                    {invite.message || 'Meet offline after this LoopOut session.'}
+                  </p>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {incoming ? (
+                      <>
+                        <Button variant="soft" onClick={() => respondOfflineInvite(invite, 'accepted')}>
+                          Accept
+                        </Button>
+                        <Button variant="secondary" onClick={() => respondOfflineInvite(invite, 'declined')}>
+                          Decline
+                        </Button>
+                      </>
+                    ) : (
+                      <Button variant="secondary" className="col-span-2" onClick={() => respondOfflineInvite(invite, 'cancelled')}>
+                        Cancel invite
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
+      {visibleFriends.length ? (
+        <div className="flex gap-2 overflow-x-auto pb-3">
+          {['Available now', 'Nearby', 'Same school/university', 'Offline today'].map((item) => (
+            <button
+              type="button"
+              className={classNames(
+                'min-h-10 shrink-0 rounded-full border px-4 text-sm font-semibold',
+                filter === item ? 'border-primary bg-primary text-white' : 'border-line bg-white text-ink'
+              )}
+              key={item}
+              onClick={() => setFilter(item)}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {loading ? (
+        <SkeletonStack />
+      ) : filteredFriends.length ? (
+        <div className="space-y-3">
+          {filteredFriends.map((friend) => (
+            <FriendCard
+              friend={friend}
+              key={friend.id}
+              privacyOn={settings.showLockedApp}
+              shareArea={settings.shareArea}
+              onInvite={(item) => openInvite(item, null)}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-line bg-white p-6 text-center shadow-soft">
+          <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-soft text-primary">
+            <Users className="h-6 w-6" />
+          </div>
+          <h2 className="mt-4 text-xl font-semibold text-ink">Add friends to go offline together.</h2>
+          <p className="mt-2 text-sm leading-6 text-muted">
+            {isRemote
+              ? 'Search by username or email, then invite accepted friends to a phone-free place.'
+              : 'Sign in with Supabase to search for friends and send requests.'}
+          </p>
+        </div>
+      )}
       <p className="mt-4 rounded-lg bg-soft p-3 text-sm leading-6 text-deep">
         Privacy is adjustable in settings. Friends only see your offline status, area and app details when you allow it.
       </p>
@@ -1438,10 +1975,10 @@ function FriendsPage({ navigate, settings, openInvite }) {
   );
 }
 
-function PlacesPage({ navigate, openInvite }) {
+function PlacesPage({ navigate, openInvite, places = lisbonPlaces, loading }) {
   const [category, setCategory] = useState('All');
   const categories = ['All', 'Public gardens', 'Parks & gardens', 'Libraries', 'Study spots', 'Cafes', 'Cultural spaces'];
-  const places = category === 'All' ? lisbonPlaces : lisbonPlaces.filter((place) => place.type === category);
+  const visiblePlaces = category === 'All' ? places : places.filter((place) => place.type === category);
 
   return (
     <>
@@ -1471,9 +2008,10 @@ function PlacesPage({ navigate, openInvite }) {
           </button>
         ))}
       </div>
-      <PhoneFreeMap places={places} />
+      {loading ? <SkeletonStack /> : null}
+      <PhoneFreeMap places={visiblePlaces} />
       <div className="space-y-3">
-        {places.map((place) => (
+        {visiblePlaces.map((place) => (
           <PlaceCard place={place} key={place.id} onInvite={openInvite} />
         ))}
       </div>
@@ -1481,39 +2019,48 @@ function PlacesPage({ navigate, openInvite }) {
   );
 }
 
-function ProgressPage({ navigate, session, invites }) {
-  const completedBonus = session?.status === 'completed' ? 1 : 0;
-  const inviteCount = invites.length;
+function ProgressPage({ navigate, session, invites, stats, screenTimeLogs = [], loading }) {
+  const snapshot = stats || fallbackProgressSnapshot(session, invites, screenTimeLogs);
+  const weeklyValues = snapshot.weeklySaved?.length ? snapshot.weeklySaved : [0, 0, 0, 0, 0, 0, 0];
+  const maxWeekly = Math.max(1, ...weeklyValues);
+  const appRows = snapshot.sessionsByApp || [];
+  const latestLog = screenTimeLogs[0] || snapshot.latestScreenTime;
 
   return (
     <>
-      <PageHeader title="Progress" subtitle="Small pauses become visible change." navigate={navigate} backTo="/dashboard" />
+      <PageHeader title="LoopOut analytics" subtitle="Measured from LoopOut activity." navigate={navigate} backTo="/dashboard" />
       <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
-        <h1 className="text-2xl font-semibold text-ink">You saved 2h 15m from scrolling this week.</h1>
-        <p className="mt-2 text-sm leading-6 text-muted">You chose purpose over autopilot 12 times.</p>
-        <p className="mt-2 text-sm leading-6 text-muted">You created {Math.max(3, inviteCount)} offline moments.</p>
+        <h1 className="text-2xl font-semibold text-ink">
+          {loading ? 'Loading your LoopOut analytics...' : `You protected ${formatMinutes(snapshot.estimatedTimeSaved)} from scrolling this week.`}
+        </h1>
+        <p className="mt-2 text-sm leading-6 text-muted">
+          Based on sessions started, timers completed, lock periods, purposes and offline invites inside LoopOut.
+        </p>
+        <p className="mt-2 text-sm leading-6 text-muted">
+          iPhone Screen Time is not read automatically by this PWA.
+        </p>
       </section>
 
       <div className="mt-4 grid grid-cols-2 gap-3">
-        <StatCard label="Sessions completed" value={12 + completedBonus} icon={CheckCircle2} />
-        <StatCard label="Total time saved" value="2h 15m" icon={Timer} />
-        <StatCard label="Locks completed" value={8 + completedBonus} icon={LockKeyhole} />
-        <StatCard label="Purposes written" value={14 + completedBonus} icon={BookOpen} />
-        <StatCard label="Offline invites sent" value={Math.max(3, inviteCount)} icon={Users} />
-        <StatCard label="Meetups accepted" value="2" icon={Heart} />
+        <StatCard label="Sessions completed" value={loading ? '...' : snapshot.completedSessions} icon={CheckCircle2} />
+        <StatCard label="Intentional time" value={loading ? '...' : formatMinutes(snapshot.totalIntentionalMinutes)} icon={Timer} />
+        <StatCard label="Lock time" value={loading ? '...' : formatMinutes(snapshot.totalLockMinutes)} icon={LockKeyhole} />
+        <StatCard label="Current streak" value={loading ? '...' : `${snapshot.currentStreak}d`} icon={BookOpen} />
+        <StatCard label="Offline invites sent" value={loading ? '...' : snapshot.invitesSent} icon={Users} />
+        <StatCard label="Meetups accepted" value={loading ? '...' : snapshot.invitesAccepted} icon={Heart} />
       </div>
 
       <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-ink">Weekly time saved</h2>
+          <h2 className="font-semibold text-ink">Weekly lock time</h2>
           <span className="text-sm text-muted">minutes</span>
         </div>
         <div className="mt-5 flex h-36 items-end gap-2">
-          {weeklySaved.map((value, index) => (
+          {weeklyValues.map((value, index) => (
             <div className="flex flex-1 flex-col items-center gap-2" key={index}>
               <div
                 className="w-full rounded-t-lg bg-primary"
-                style={{ height: `${Math.max(18, (value / 42) * 100)}%`, opacity: 0.42 + index * 0.07 }}
+                style={{ height: `${Math.max(18, (value / maxWeekly) * 100)}%`, opacity: 0.42 + index * 0.07 }}
               />
               <span className="text-[11px] text-muted">{['M', 'T', 'W', 'T', 'F', 'S', 'S'][index]}</span>
             </div>
@@ -1523,8 +2070,9 @@ function ProgressPage({ navigate, session, invites }) {
 
       <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
         <h2 className="font-semibold text-ink">Sessions by app</h2>
+        {appRows.length ? (
         <div className="mt-5 space-y-4">
-          {sessionsByApp.map((item) => (
+          {appRows.map((item) => (
             <div key={item.label}>
               <div className="flex justify-between text-sm">
                 <span className="font-medium text-ink">{item.label}</span>
@@ -1536,38 +2084,216 @@ function ProgressPage({ navigate, session, invites }) {
             </div>
           ))}
         </div>
+        ) : (
+          <p className="mt-4 rounded-lg bg-canvas p-3 text-sm leading-6 text-muted">
+            Start a session to see your app breakdown.
+          </p>
+        )}
       </section>
 
       <section className="mt-4 grid gap-3 pb-2">
+        <button
+          type="button"
+          className="rounded-lg border border-line bg-white p-4 text-left shadow-sm"
+          onClick={() => navigate('/screen-time-import')}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm text-muted">Screen Time Import</p>
+              <p className="mt-1 text-lg font-semibold text-ink">
+                {latestLog ? `${formatMinutes(latestLog.totalScreenTimeMinutes)} on ${formatDate(latestLog.date)}` : 'Add manual iPhone Screen Time'}
+              </p>
+            </div>
+            <UploadCloud className="h-5 w-5 text-primary" />
+          </div>
+        </button>
         <div className="rounded-lg border border-line bg-white p-4 shadow-sm">
-          <p className="text-sm text-muted">Current streak</p>
-          <p className="mt-1 text-2xl font-semibold text-ink">5 days</p>
+          <p className="text-sm text-muted">Estimated time saved from scrolling</p>
+          <p className="mt-1 text-2xl font-semibold text-ink">{formatMinutes(snapshot.estimatedTimeSaved)}</p>
         </div>
         <div className="rounded-lg border border-line bg-white p-4 shadow-sm">
-          <p className="text-sm text-muted">Average session length</p>
-          <p className="mt-1 text-2xl font-semibold text-ink">11 min</p>
+          <p className="text-sm text-muted">Most used distracting app</p>
+          <p className="mt-1 text-2xl font-semibold text-ink">{snapshot.mostUsedApp}</p>
         </div>
         <div className="rounded-lg border border-line bg-white p-4 shadow-sm">
-          <p className="text-sm text-muted">Most blocked app</p>
-          <p className="mt-1 text-2xl font-semibold text-ink">Instagram</p>
-        </div>
-        <div className="rounded-lg border border-line bg-white p-4 shadow-sm">
-          <p className="text-sm text-muted">Most common purpose</p>
-          <p className="mt-1 text-2xl font-semibold text-ink">Reply to one message</p>
+          <p className="text-sm text-muted">Most common purpose word</p>
+          <p className="mt-1 text-2xl font-semibold text-ink">{snapshot.mostCommonPurpose}</p>
         </div>
       </section>
     </>
   );
 }
 
-function SettingsPage({ navigate, profile, setProfile, settings, setSettings }) {
+function ScreenTimeImportPage({ navigate, logs = [], onSave, saving, isRemote }) {
+  const [form, setForm] = useState({
+    date: todayInputValue(),
+    totalScreenTimeMinutes: 240,
+    socialMediaMinutes: 90,
+    mostUsedApp: 'Instagram',
+    notes: '',
+  });
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  const updateForm = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setMessage('');
+    setError('');
+    try {
+      await onSave(form);
+      setMessage('Screen Time log saved.');
+    } catch (err) {
+      setError(err.message || 'Could not save this log.');
+    }
+  };
+
+  return (
+    <>
+      <PageHeader title="Screen Time Import" subtitle="Manual comparison for now." navigate={navigate} backTo="/progress" />
+      <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
+        <div className="grid h-12 w-12 place-items-center rounded-full bg-soft text-primary">
+          <UploadCloud className="h-5 w-5" />
+        </div>
+        <h1 className="mt-4 text-2xl font-semibold text-ink">Compare iPhone Screen Time with LoopOut progress.</h1>
+        <p className="mt-3 text-sm leading-6 text-muted">
+          LoopOut PWA cannot automatically read iPhone Screen Time yet. For now, you can manually enter your daily
+          Screen Time to compare it with your LoopOut progress. Native iOS Screen Time integration can be added later.
+        </p>
+        {!isRemote ? (
+          <p className="mt-3 rounded-lg bg-soft p-3 text-sm leading-6 text-deep">
+            These logs are saved to your LoopOut account when you are signed in.
+          </p>
+        ) : null}
+      </section>
+
+      <form className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm" onSubmit={submit}>
+        <div className="grid gap-4">
+          <label className="block">
+            <span className="text-sm font-medium text-ink">Date</span>
+            <input
+              className="mt-2 min-h-12 w-full rounded-lg border border-line bg-canvas px-3 text-base text-ink outline-none focus:border-primary"
+              type="date"
+              value={form.date}
+              onChange={(event) => updateForm('date', event.target.value)}
+            />
+          </label>
+          <NumberField
+            label="Total iPhone Screen Time"
+            value={form.totalScreenTimeMinutes}
+            min={0}
+            max={1440}
+            onChange={(value) => updateForm('totalScreenTimeMinutes', value)}
+          />
+          <NumberField
+            label="Social media time"
+            value={form.socialMediaMinutes}
+            min={0}
+            max={1440}
+            onChange={(value) => updateForm('socialMediaMinutes', value)}
+          />
+          <Field label="Most used app" value={form.mostUsedApp} onChange={(value) => updateForm('mostUsedApp', value)} />
+          <label className="block">
+            <span className="text-sm font-medium text-ink">Notes</span>
+            <textarea
+              className="mt-2 min-h-24 w-full resize-none rounded-lg border border-line bg-canvas px-3 py-3 text-base text-ink outline-none focus:border-primary"
+              value={form.notes}
+              onChange={(event) => updateForm('notes', event.target.value)}
+              placeholder="What changed today?"
+            />
+          </label>
+        </div>
+        {message ? <p className="mt-4 rounded-lg bg-[#E8F8EF] p-3 text-sm text-[#137A3D]">{message}</p> : null}
+        {error ? <p className="mt-4 rounded-lg bg-[#FFF1F0] p-3 text-sm text-[#B42318]">{error}</p> : null}
+        <Button className="mt-5 w-full" icon={Calendar} type="submit" disabled={saving}>
+          {saving ? 'Saving...' : 'Save daily Screen Time'}
+        </Button>
+      </form>
+
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-ink">Recent manual logs</h2>
+        {logs.length ? (
+          <div className="mt-3 space-y-2">
+            {logs.slice(0, 7).map((log) => (
+              <div className="rounded-lg bg-canvas p-3" key={log.id || log.date}>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-ink">{formatDate(log.date)}</p>
+                    <p className="text-xs text-muted">{log.mostUsedApp || 'No app noted'}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-ink">{formatMinutes(log.totalScreenTimeMinutes)}</p>
+                    <p className="text-xs text-muted">{formatMinutes(log.socialMediaMinutes)} social</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 rounded-lg bg-canvas p-3 text-sm leading-6 text-muted">
+            No manual Screen Time logs yet.
+          </p>
+        )}
+      </section>
+    </>
+  );
+}
+
+function SettingsPage({
+  navigate,
+  profile,
+  setProfile,
+  settings,
+  setSettings,
+  isRemote,
+  backendConfigured,
+  onSaveProfile,
+  onSavePrivacy,
+  onLogout,
+}) {
   const [copied, setCopied] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
   const loopoutUrl = `${window.location.origin}/session/select-app`;
 
   const updateProfile = (key, value) => {
     const next = { ...profile, [key]: value };
     if (key === 'name') next.avatar = value.charAt(0).toUpperCase() || 'B';
     setProfile(next);
+  };
+
+  const saveProfile = async () => {
+    setSaving(true);
+    setNotice('');
+    setError('');
+    try {
+      await onSaveProfile?.({
+        full_name: profile.name,
+        username: profile.username,
+        email: profile.email,
+        city: profile.city,
+        area: profile.area,
+      });
+      setNotice('Profile saved.');
+    } catch (err) {
+      setError(err.message || 'Could not save profile.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updatePrivacy = async (key, value) => {
+    const next = { ...settings, [key]: value };
+    setSettings(next);
+    setNotice('');
+    setError('');
+    try {
+      await onSavePrivacy?.(next);
+    } catch (err) {
+      setError(err.message || 'Could not update privacy settings.');
+    }
   };
 
   const copyUrl = async () => {
@@ -1584,16 +2310,39 @@ function SettingsPage({ navigate, profile, setProfile, settings, setSettings }) 
     <>
       <PageHeader title="Settings" subtitle="Tune LoopOut to your habits." navigate={navigate} backTo="/dashboard" />
 
+      <SettingsGroup title="Launch readiness" icon={ShieldCheck}>
+        <ReadinessRow
+          ready={backendConfigured}
+          label="Secure backend"
+          detail={
+            backendConfigured
+              ? 'Supabase environment variables are configured.'
+              : 'This runtime is missing VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.'
+          }
+        />
+        <ReadinessRow ready label="Database schema" detail="Tables, RLS policies, seeds and indexes are included in supabase/schema.sql." />
+        <ReadinessRow ready label="PWA install" detail="Manifest, icons and service worker are configured for Home Screen install." />
+        <ReadinessRow ready label="iPhone Shortcuts" detail="The setup page creates a session URL for app-open automations." />
+        <ReadinessRow ready label="Screen Time limitation" detail="Analytics use LoopOut activity; iPhone Screen Time is manual until a native iOS app exists." />
+      </SettingsGroup>
+
       <SettingsGroup title="Profile" icon={CircleUserRound}>
         <Field label="Name" value={profile.name} onChange={(value) => updateProfile('name', value)} />
+        <Field label="Username" value={profile.username || ''} onChange={(value) => updateProfile('username', value)} />
         <Field label="Email" type="email" value={profile.email} onChange={(value) => updateProfile('email', value)} />
         <Field label="City" value={profile.city} onChange={(value) => updateProfile('city', value)} />
+        <Field label="Area / neighbourhood" value={profile.area || ''} onChange={(value) => updateProfile('area', value)} />
         <div className="flex items-center gap-3 rounded-lg bg-canvas p-3">
           <div className="grid h-12 w-12 place-items-center rounded-full bg-white font-semibold text-deep shadow-sm">
             {profile.avatar}
           </div>
           <p className="text-sm text-muted">Avatar initials update from your name.</p>
         </div>
+        {notice ? <p className="rounded-lg bg-[#E8F8EF] p-3 text-sm text-[#137A3D]">{notice}</p> : null}
+        {error ? <p className="rounded-lg bg-[#FFF1F0] p-3 text-sm text-[#B42318]">{error}</p> : null}
+        <Button className="w-full" variant="soft" icon={CheckCircle2} disabled={saving} onClick={saveProfile}>
+          {saving ? 'Saving...' : 'Save profile'}
+        </Button>
       </SettingsGroup>
 
       <SettingsGroup title="Session settings" icon={SlidersHorizontal}>
@@ -1620,28 +2369,38 @@ function SettingsPage({ navigate, profile, setProfile, settings, setSettings }) 
         <ToggleRow
           label="Show offline status to friends"
           checked={settings.showOfflineStatus}
-          onChange={(value) => setSettings({ ...settings, showOfflineStatus: value })}
+          onChange={(value) => updatePrivacy('showOfflineStatus', value)}
         />
         <ToggleRow
           label="Show locked app name"
           checked={settings.showLockedApp}
-          onChange={(value) => setSettings({ ...settings, showLockedApp: value })}
+          onChange={(value) => updatePrivacy('showLockedApp', value)}
+        />
+        <ToggleRow
+          label="Show area/neighbourhood"
+          checked={settings.shareArea}
+          onChange={(value) => updatePrivacy('shareArea', value)}
         />
         <ToggleRow
           label="Allow offline invites"
           checked={settings.allowInvites}
-          onChange={(value) => setSettings({ ...settings, allowInvites: value })}
+          onChange={(value) => updatePrivacy('allowInvites', value)}
         />
         <ToggleRow
-          label="Share area/neighbourhood"
-          checked={settings.shareArea}
-          onChange={(value) => setSettings({ ...settings, shareArea: value })}
+          label="Allow friend requests"
+          checked={settings.allowFriendRequests}
+          onChange={(value) => updatePrivacy('allowFriendRequests', value)}
+        />
+        <ToggleRow
+          label="Hide profile from search"
+          checked={settings.hideProfileFromSearch}
+          onChange={(value) => updatePrivacy('hideProfileFromSearch', value)}
         />
       </SettingsGroup>
 
       <SettingsGroup title="iPhone Automation Setup" icon={Smartphone}>
         <Button className="w-full" variant="soft" icon={Copy} onClick={copyUrl}>
-          {copied ? 'Copied' : 'Copy LoopOut URL'}
+          {copied ? 'Copied' : 'Copy my LoopOut URL'}
         </Button>
         <button
           type="button"
@@ -1667,6 +2426,21 @@ function SettingsPage({ navigate, profile, setProfile, settings, setSettings }) 
         </p>
       </SettingsGroup>
 
+      <SettingsGroup title="Data" icon={UploadCloud}>
+        <button
+          type="button"
+          className="w-full rounded-lg border border-line bg-white p-3 text-left text-sm font-semibold text-deep"
+          onClick={() => navigate('/screen-time-import')}
+        >
+          Open Screen Time Import
+        </button>
+        {isRemote ? (
+          <Button className="w-full" variant="secondary" icon={LogOut} onClick={onLogout}>
+            Log out
+          </Button>
+        ) : null}
+      </SettingsGroup>
+
       <p className="rounded-lg bg-white p-4 text-sm leading-6 text-muted shadow-sm">
         LoopOut currently simulates app locking. Connect it with iPhone Shortcuts to create a pause before opening
         distracting apps. Native app blocking can be added in a future version.
@@ -1686,6 +2460,25 @@ function SettingsGroup({ title, icon: Icon, children }) {
       </div>
       <div className="space-y-4">{children}</div>
     </section>
+  );
+}
+
+function ReadinessRow({ ready, label, detail }) {
+  return (
+    <div className="flex items-start gap-3 rounded-lg bg-canvas p-3">
+      <div
+        className={classNames(
+          'mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full',
+          ready ? 'bg-[#E8F8EF] text-[#137A3D]' : 'bg-[#FFF7E6] text-[#B54708]'
+        )}
+      >
+        {ready ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+      </div>
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-ink">{label}</p>
+        <p className="mt-1 text-xs leading-5 text-muted">{detail}</p>
+      </div>
+    </div>
   );
 }
 
@@ -1747,17 +2540,17 @@ function SetupPage({ navigate }) {
   return (
     <div className="min-h-screen bg-canvas text-ink">
       <main className="mx-auto max-w-md px-4 pb-12">
-        <PageHeader title="Setup iPhone Automation" subtitle="Open LoopOut before distracting apps." navigate={navigate} backTo="/" />
+        <PageHeader title="Connect LoopOut to iPhone Shortcuts" subtitle="Open LoopOut before distracting apps." navigate={navigate} backTo="/" />
         <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
           <div className="grid h-14 w-14 place-items-center rounded-[16px] bg-soft text-primary">
             <Smartphone className="h-7 w-7" />
           </div>
-          <h1 className="mt-5 text-3xl font-semibold leading-tight text-ink">Connect LoopOut to Shortcuts.</h1>
+          <h1 className="mt-5 text-3xl font-semibold leading-tight text-ink">Connect LoopOut to iPhone Shortcuts.</h1>
           <p className="mt-3 leading-7 text-muted">
             Whenever you open a selected app, iPhone can open LoopOut first so you write a purpose and set a timer.
           </p>
           <Button className="mt-5 w-full" variant="soft" icon={Copy} onClick={copyUrl}>
-            {copied ? 'Copied' : 'Copy LoopOut URL'}
+            {copied ? 'Copied' : 'Copy my LoopOut URL'}
           </Button>
         </section>
 
@@ -1780,6 +2573,54 @@ function SetupPage({ navigate }) {
   );
 }
 
+function LoadingScreen() {
+  return (
+    <div className="grid min-h-screen place-items-center bg-canvas px-4 text-ink">
+      <div className="w-full max-w-sm rounded-lg border border-line bg-white p-6 text-center shadow-soft">
+        <div className="mx-auto mb-4 h-12 w-12 overflow-hidden rounded-[12px] border border-line bg-white shadow-sm">
+          <img className="h-full w-full object-cover" src="/loopout-logo-512.png" alt="" />
+        </div>
+        <h1 className="text-xl font-semibold text-ink">Loading LoopOut</h1>
+        <p className="mt-2 text-sm leading-6 text-muted">Syncing your sessions, friends and progress.</p>
+        <div className="mt-5 h-2 overflow-hidden rounded-full bg-soft">
+          <div className="h-full w-1/2 animate-pulse rounded-full bg-primary" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BackendRequiredScreen({ navigate }) {
+  return (
+    <div className="min-h-screen bg-canvas px-4 py-[calc(env(safe-area-inset-top)+24px)] text-ink">
+      <div className="mx-auto max-w-md">
+        <button type="button" className="mb-8" onClick={() => navigate('/')}>
+          <BrandMark />
+        </button>
+        <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
+          <div className="grid h-14 w-14 place-items-center rounded-[16px] bg-soft text-primary">
+            <ShieldCheck className="h-7 w-7" />
+          </div>
+          <p className="mt-5 text-sm font-semibold uppercase tracking-[0.12em] text-primary">Supabase required</p>
+          <h1 className="mt-2 text-3xl font-semibold leading-tight text-ink">LoopOut is ready for the real backend.</h1>
+          <p className="mt-3 text-sm leading-6 text-muted">
+            This environment does not expose the Supabase variables yet. In Vercel, add the production variables and
+            redeploy so accounts, friends, sessions and analytics use the database.
+          </p>
+          <div className="mt-5 space-y-2 rounded-lg bg-canvas p-3 text-sm text-muted">
+            <p className="font-semibold text-ink">Required variables</p>
+            <p>VITE_SUPABASE_URL</p>
+            <p>VITE_SUPABASE_ANON_KEY</p>
+          </div>
+          <Button className="mt-5 w-full" variant="soft" icon={Copy} onClick={() => navigate('/setup-iphone')}>
+            View iPhone setup
+          </Button>
+        </section>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const { path, navigate } = useRoute();
   const now = useNow();
@@ -1793,76 +2634,390 @@ export default function App() {
     lockDurationMinutes: defaultSettings.defaultLock,
   });
   const [invites, setInvites] = useLocalStorage(storageKeys.invites, []);
+  const [screenTimeLogs, setScreenTimeLogs] = useLocalStorage(storageKeys.screenTimeLogs, []);
   const [, setOnboarded] = useLocalStorage(storageKeys.onboarded, false);
+  const [authUser, setAuthUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [remoteFriends, setRemoteFriends] = useState([]);
+  const [friendRequests, setFriendRequests] = useState([]);
+  const [remoteInvites, setRemoteInvites] = useState([]);
+  const [places, setPlaces] = useState(lisbonPlaces);
+  const [progressStats, setProgressStats] = useState(null);
+  const [backendError, setBackendError] = useState('');
   const [inviteModal, setInviteModal] = useState(null);
   const [inviteToast, setInviteToast] = useState(false);
+  const [inviteSending, setInviteSending] = useState(false);
+  const [screenTimeSaving, setScreenTimeSaving] = useState(false);
+
+  const isRemote = isSupabaseConfigured && Boolean(authUser);
+  const activeFriends = isRemote ? remoteFriends : [];
+  const activeInvites = isRemote ? remoteInvites : invites;
+  const activePlaces = places.length ? places : lisbonPlaces;
+  const activeStats = progressStats || fallbackProgressSnapshot(session, activeInvites, screenTimeLogs);
+
+  const loadRemoteData = useCallback(
+    async (user) => {
+      if (!isSupabaseConfigured || !user) return;
+      setDataLoading(true);
+      setBackendError('');
+
+      try {
+        const [profileRow, sessionRow, placeRows, friendsPayload, inviteRows, stats, logs] = await Promise.all([
+          fetchProfile(user),
+          fetchActiveSession(user.id),
+          fetchPlaces(),
+          fetchFriends(user.id),
+          fetchInvites(user.id),
+          fetchProgressSnapshot(user.id),
+          fetchScreenTimeLogs(user.id),
+        ]);
+
+        const nextProfile = profileFromRow(profileRow, user);
+        setProfile(nextProfile);
+        setSettings((current) => ({ ...current, ...nextProfile.privacy }));
+        setSession(sessionRow ? sessionFromRecord(sessionRow) : null);
+        setPlaces(placeRows.length ? placeRows.map(placeFromRecord).filter(Boolean) : lisbonPlaces);
+        setRemoteFriends(friendsPayload.friends.map(friendFromBundle));
+        setFriendRequests(friendsPayload.requests.map(friendRequestFromBundle));
+        setRemoteInvites(inviteRows);
+        setProgressStats(stats);
+        setScreenTimeLogs(logs.map(screenTimeLogFromRecord));
+      } catch (err) {
+        setBackendError(err.message || 'Could not load LoopOut data.');
+      } finally {
+        setDataLoading(false);
+      }
+    },
+    [setProfile, setScreenTimeLogs, setSession, setSettings]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!isSupabaseConfigured) {
+      setAuthLoading(false);
+      return undefined;
+    }
+
+    const boot = async () => {
+      try {
+        const { user } = await getAuthSession();
+        if (cancelled) return;
+        setAuthUser(user);
+        if (user) await loadRemoteData(user);
+      } catch (err) {
+        if (!cancelled) setBackendError(err.message || 'Could not connect to Supabase.');
+      } finally {
+        if (!cancelled) setAuthLoading(false);
+      }
+    };
+
+    boot();
+
+    const unsubscribe = subscribeToAuthChanges((_event, authSession) => {
+      const user = authSession?.user || null;
+      setAuthUser(user);
+      if (user) {
+        loadRemoteData(user);
+      } else {
+        setRemoteFriends([]);
+        setFriendRequests([]);
+        setRemoteInvites([]);
+        setProgressStats(null);
+        setSession(null);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [loadRemoteData, setSession]);
+
+  const persistSessionLock = useCallback(
+    async (nextSession) => {
+      if (!isRemote || !authUser || !nextSession.remoteId) return;
+      const app = getSessionApp(nextSession);
+      await Promise.all([
+        updateSessionRecord(nextSession.remoteId, {
+          status: 'locked',
+          ended_at: isoFromMs(nextSession.endedAt),
+          lock_started_at: isoFromMs(nextSession.lockStartedAt),
+          lock_ends_at: isoFromMs(nextSession.lockEndsAt),
+        }),
+        upsertOfflineStatus(authUser.id, {
+          is_offline: settings.showOfflineStatus,
+          locked_app: settings.showLockedApp ? app.name : null,
+          lock_started_at: isoFromMs(nextSession.lockStartedAt),
+          lock_ends_at: isoFromMs(nextSession.lockEndsAt),
+          visible_to_friends: settings.showOfflineStatus,
+          area: settings.shareArea ? profile.area || profile.city : null,
+        }),
+      ]);
+      setProgressStats(await fetchProgressSnapshot(authUser.id));
+    },
+    [authUser, isRemote, profile.area, profile.city, settings.shareArea, settings.showLockedApp, settings.showOfflineStatus]
+  );
+
+  const persistSessionComplete = useCallback(
+    async (nextSession) => {
+      if (!isRemote || !authUser || !nextSession.remoteId) return;
+      await Promise.all([
+        updateSessionRecord(nextSession.remoteId, {
+          status: 'completed',
+          completed: true,
+          ended_at: isoFromMs(nextSession.endedAt || nextSession.lockStartedAt),
+          lock_started_at: isoFromMs(nextSession.lockStartedAt),
+          lock_ends_at: isoFromMs(nextSession.lockEndsAt),
+        }),
+        upsertOfflineStatus(authUser.id, {
+          is_offline: false,
+          locked_app: null,
+          lock_started_at: null,
+          lock_ends_at: null,
+          visible_to_friends: settings.showOfflineStatus,
+          area: settings.shareArea ? profile.area || profile.city : null,
+        }),
+      ]);
+      await loadRemoteData(authUser);
+    },
+    [authUser, isRemote, loadRemoteData, profile.area, profile.city, settings.shareArea, settings.showOfflineStatus]
+  );
 
   useEffect(() => {
     if (!session) return;
     if (session.status === 'active' && now >= session.endsAt) {
       const lockStartedAt = session.endsAt;
-      setSession({
+      const nextSession = {
         ...session,
         status: 'locked',
         endedAt: session.endsAt,
         lockStartedAt,
         lockEndsAt: lockStartedAt + minutesToMs(session.lockDurationMinutes),
-      });
+      };
+      setSession(nextSession);
+      persistSessionLock(nextSession).catch((err) => setBackendError(err.message || 'Could not save lock state.'));
       if (path !== '/session/locked') navigate('/session/locked');
     }
     if (session.status === 'locked' && now >= session.lockEndsAt) {
-      setSession({
+      const nextSession = {
         ...session,
         status: 'completed',
         completedAt: session.lockEndsAt,
-      });
+      };
+      setSession(nextSession);
+      persistSessionComplete(nextSession).catch((err) => setBackendError(err.message || 'Could not complete session.'));
     }
-  }, [navigate, now, path, session, setSession]);
+  }, [navigate, now, path, persistSessionComplete, persistSessionLock, session, setSession]);
 
-  const startSession = (nextDraft) => {
+  const startSession = async (nextDraft) => {
     const startedAt = Date.now();
-    const nextSession = {
-      id: crypto.randomUUID(),
-      appId: nextDraft.appId,
+    const app = getAppById(nextDraft.appId);
+    const cleanDraft = {
+      ...nextDraft,
+      appName: app.name,
       purpose: nextDraft.purpose.trim(),
-      timerMinutes: nextDraft.timerMinutes,
-      lockDurationMinutes: nextDraft.lockDurationMinutes,
-      startedAt,
-      endsAt: startedAt + minutesToMs(nextDraft.timerMinutes),
-      status: 'active',
+      timerMinutes: Number(nextDraft.timerMinutes),
+      lockDurationMinutes: Number(nextDraft.lockDurationMinutes),
     };
-    setSession(nextSession);
-    setDraft({ ...nextDraft, purpose: '' });
-    navigate('/session/active');
+
+    try {
+      if (isRemote && authUser) {
+        const row = await createSessionRecord(authUser.id, cleanDraft);
+        setSession(sessionFromRecord(row));
+      } else {
+        setSession({
+          id: crypto.randomUUID(),
+          appId: cleanDraft.appId,
+          appName: cleanDraft.appName,
+          purpose: cleanDraft.purpose,
+          timerMinutes: cleanDraft.timerMinutes,
+          lockDurationMinutes: cleanDraft.lockDurationMinutes,
+          startedAt,
+          endsAt: startedAt + minutesToMs(cleanDraft.timerMinutes),
+          status: 'active',
+        });
+      }
+      setDraft({ ...nextDraft, purpose: '' });
+      navigate('/session/active');
+    } catch (err) {
+      setBackendError(err.message || 'Could not start session.');
+    }
   };
 
   const openInvite = (friend = null, place = null) => {
     setInviteModal({ friend, place });
   };
 
-  const sendInvite = (invite) => {
-    setInvites([
-      {
-        id: crypto.randomUUID(),
-        ...invite,
-        status: 'sent',
-        createdAt: Date.now(),
-      },
-      ...invites,
-    ]);
-    setInviteModal(null);
-    setInviteToast(true);
-    window.setTimeout(() => setInviteToast(false), 2600);
+  const sendInvite = async (invite) => {
+    setInviteSending(true);
+    try {
+      if (isRemote && authUser) {
+        await createInviteRecord({
+          senderId: authUser.id,
+          receiverId: invite.friendId,
+          placeId: isUuid(invite.placeId) ? invite.placeId : null,
+          suggestedTime: suggestedTimeToIso(invite.time),
+          message: invite.message,
+        });
+        await loadRemoteData(authUser);
+      } else {
+        setInvites([
+          {
+            id: crypto.randomUUID(),
+            ...invite,
+            status: 'sent',
+            createdAt: Date.now(),
+          },
+          ...invites,
+        ]);
+      }
+      setInviteModal(null);
+      setInviteToast(true);
+      window.setTimeout(() => setInviteToast(false), 2600);
+    } catch (err) {
+      setBackendError(err.message || 'Could not send invite.');
+    } finally {
+      setInviteSending(false);
+    }
   };
 
-  const content = useMemo(() => {
+  const saveScreenTimeLog = async (log) => {
+    setScreenTimeSaving(true);
+    try {
+      if (isRemote && authUser) {
+        await createScreenTimeLog(authUser.id, log);
+        const rows = await fetchScreenTimeLogs(authUser.id);
+        setScreenTimeLogs(rows.map(screenTimeLogFromRecord));
+      } else {
+        const nextLog = { id: crypto.randomUUID(), ...log };
+        setScreenTimeLogs([nextLog, ...screenTimeLogs.filter((item) => item.date !== log.date)]);
+      }
+    } finally {
+      setScreenTimeSaving(false);
+    }
+  };
+
+  const saveProfile = async (patch) => {
+    if (!isRemote || !authUser) return;
+    const row = await upsertProfile(authUser.id, patch);
+    const nextProfile = profileFromRow(row, authUser);
+    setProfile(nextProfile);
+    setSettings((current) => ({ ...current, ...nextProfile.privacy }));
+  };
+
+  const savePrivacy = async (nextSettings) => {
+    if (!isRemote || !authUser) return;
+    await upsertProfile(authUser.id, {
+      show_offline_status: nextSettings.showOfflineStatus,
+      show_locked_app: nextSettings.showLockedApp,
+      show_area: nextSettings.shareArea,
+      allow_offline_invites: nextSettings.allowInvites,
+      allow_friend_requests: nextSettings.allowFriendRequests,
+      hide_profile_from_search: nextSettings.hideProfileFromSearch,
+    });
+  };
+
+  const logout = async () => {
+    if (isRemote) await signOutUser();
+    setAuthUser(null);
+    setRemoteFriends([]);
+    setFriendRequests([]);
+    setRemoteInvites([]);
+    setProgressStats(null);
+    setSession(null);
+    navigate('/login');
+  };
+
+  const searchFriendsRemote = async (query) => {
+    if (!isRemote || !authUser) return [];
+    return searchProfiles(query, authUser.id);
+  };
+
+  const sendFriendRequestRemote = async (profileId) => {
+    if (!isRemote || !authUser) return;
+    await sendFriendRequest(authUser.id, profileId);
+    await loadRemoteData(authUser);
+  };
+
+  const respondFriendRequestRemote = async (friendshipId, status) => {
+    if (!isRemote || !authUser) return;
+    await respondToFriendRequest(friendshipId, status);
+    await loadRemoteData(authUser);
+  };
+
+  const respondInviteRemote = async (inviteId, status) => {
+    if (!isRemote || !authUser) return;
+    await respondToInvite(inviteId, status);
+    await loadRemoteData(authUser);
+  };
+
+  const publicPage = (() => {
     if (path === '/') return <Landing navigate={navigate} />;
     if (path === '/onboarding') return <Onboarding navigate={navigate} setOnboarded={setOnboarded} />;
-    if (path === '/login') return <AuthPage navigate={navigate} profile={profile} setProfile={setProfile} />;
+    if (path === '/login') {
+      if (!isSupabaseConfigured) return <BackendRequiredScreen navigate={navigate} />;
+      return (
+        <AuthPage
+          navigate={navigate}
+          profile={profile}
+          onAuthReady={(user) => loadRemoteData(user)}
+        />
+      );
+    }
+    if (path === '/setup-iphone') return <SetupPage navigate={navigate} />;
+    return null;
+  })();
+
+  const content = (() => {
+    if (authLoading) return <LoadingScreen />;
+    if (publicPage) return publicPage;
+
+    if (!isSupabaseConfigured) {
+      return <BackendRequiredScreen navigate={navigate} />;
+    }
+
+    if (isSupabaseConfigured && !authUser) {
+      return (
+        <AuthPage
+          navigate={navigate}
+          profile={profile}
+          onAuthReady={(user) => loadRemoteData(user)}
+        />
+      );
+    }
+
+    if (path === '/') return <Landing navigate={navigate} />;
+    if (path === '/onboarding') return <Onboarding navigate={navigate} setOnboarded={setOnboarded} />;
+    if (path === '/login') {
+      if (!isSupabaseConfigured) return <BackendRequiredScreen navigate={navigate} />;
+      return (
+        <AuthPage
+          navigate={navigate}
+          profile={profile}
+          onAuthReady={(user) => loadRemoteData(user)}
+        />
+      );
+    }
     if (path === '/setup-iphone') return <SetupPage navigate={navigate} />;
 
     const shellPage = (() => {
-      if (path === '/dashboard') return <Dashboard navigate={navigate} profile={profile} session={session} now={now} />;
+      if (path === '/dashboard') {
+        return (
+          <Dashboard
+            navigate={navigate}
+            profile={profile}
+            session={session}
+            now={now}
+            stats={activeStats}
+            friends={activeFriends}
+            invites={activeInvites}
+            loading={dataLoading}
+            isRemote={isRemote}
+          />
+        );
+      }
       if (path === '/session/select-app') return <SelectAppPage navigate={navigate} draft={draft} setDraft={setDraft} />;
       if (path === '/session/purpose') return <PurposePage navigate={navigate} draft={draft} setDraft={setDraft} />;
       if (path === '/session/timer') {
@@ -1877,14 +3032,64 @@ export default function App() {
         );
       }
       if (path === '/session/active') {
-        return <ActiveTimerPage navigate={navigate} session={session} setSession={setSession} now={now} />;
+        return (
+          <ActiveTimerPage
+            navigate={navigate}
+            session={session}
+            setSession={setSession}
+            now={now}
+            onSessionLock={(nextSession) =>
+              persistSessionLock(nextSession).catch((err) => setBackendError(err.message || 'Could not save lock state.'))
+            }
+          />
+        );
       }
       if (path === '/session/locked') {
         return <LockedPage navigate={navigate} session={session} now={now} />;
       }
-      if (path === '/friends') return <FriendsPage navigate={navigate} settings={settings} openInvite={openInvite} />;
-      if (path === '/places') return <PlacesPage navigate={navigate} openInvite={openInvite} />;
-      if (path === '/progress') return <ProgressPage navigate={navigate} session={session} invites={invites} />;
+      if (path === '/friends') {
+        return (
+          <FriendsPage
+            navigate={navigate}
+            settings={settings}
+            openInvite={openInvite}
+            friends={activeFriends}
+            requests={friendRequests}
+            invites={activeInvites}
+            currentUserId={authUser?.id}
+            isRemote={isRemote}
+            loading={dataLoading}
+            onSearch={searchFriendsRemote}
+            onSendFriendRequest={sendFriendRequestRemote}
+            onRespondFriendRequest={respondFriendRequestRemote}
+            onRespondInvite={respondInviteRemote}
+          />
+        );
+      }
+      if (path === '/places') return <PlacesPage navigate={navigate} openInvite={openInvite} places={activePlaces} loading={dataLoading} />;
+      if (path === '/progress') {
+        return (
+          <ProgressPage
+            navigate={navigate}
+            session={session}
+            invites={activeInvites}
+            stats={activeStats}
+            screenTimeLogs={screenTimeLogs}
+            loading={dataLoading}
+          />
+        );
+      }
+      if (path === '/screen-time-import') {
+        return (
+          <ScreenTimeImportPage
+            navigate={navigate}
+            logs={screenTimeLogs}
+            onSave={saveScreenTimeLog}
+            saving={screenTimeSaving}
+            isRemote={isRemote}
+          />
+        );
+      }
       if (path === '/settings') {
         return (
           <SettingsPage
@@ -1893,10 +3098,27 @@ export default function App() {
             setProfile={setProfile}
             settings={settings}
             setSettings={setSettings}
+            isRemote={isRemote}
+            backendConfigured={isSupabaseConfigured}
+            onSaveProfile={saveProfile}
+            onSavePrivacy={savePrivacy}
+            onLogout={logout}
           />
         );
       }
-      return <Dashboard navigate={navigate} profile={profile} session={session} now={now} />;
+      return (
+        <Dashboard
+          navigate={navigate}
+          profile={profile}
+          session={session}
+          now={now}
+          stats={activeStats}
+          friends={activeFriends}
+          invites={activeInvites}
+          loading={dataLoading}
+          isRemote={isRemote}
+        />
+      );
     })();
 
     return (
@@ -1904,31 +3126,25 @@ export default function App() {
         {shellPage}
       </AppShell>
     );
-  }, [
-    draft,
-    invites,
-    navigate,
-    now,
-    path,
-    profile,
-    session,
-    setDraft,
-    setOnboarded,
-    setProfile,
-    setSession,
-    setSettings,
-    settings,
-  ]);
+  })();
 
   return (
     <>
       {content}
+      {backendError ? (
+        <div className="fixed inset-x-4 top-[calc(env(safe-area-inset-top)+12px)] z-50 mx-auto max-w-md rounded-lg bg-[#FFF1F0] px-4 py-3 text-sm font-semibold text-[#B42318] shadow-lift">
+          {backendError}
+        </div>
+      ) : null}
       {inviteModal ? (
         <InviteModal
           friend={inviteModal.friend}
           place={inviteModal.place}
+          friends={activeFriends}
+          places={activePlaces}
           onClose={() => setInviteModal(null)}
           onSend={sendInvite}
+          sending={inviteSending}
         />
       ) : null}
       {inviteToast ? (

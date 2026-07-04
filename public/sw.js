@@ -1,7 +1,14 @@
-const CACHE_NAME = 'loopout-v3';
+const CACHE_NAME = 'loopout-v4';
 const APP_SHELL = [
   '/',
   '/dashboard',
+  '/login',
+  '/session/select-app',
+  '/friends',
+  '/places',
+  '/progress',
+  '/screen-time-import',
+  '/setup-iphone',
   '/manifest.webmanifest',
   '/loopout-logo-512.png',
   '/apple-touch-icon.png',

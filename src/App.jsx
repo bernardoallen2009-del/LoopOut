@@ -18,7 +18,6 @@ import {
   LogOut,
   LockKeyhole,
   MapPin,
-  PauseCircle,
   Play,
   Plus,
   Search,
@@ -296,6 +295,14 @@ function getSessionApp(session) {
   if (!session) return null;
   const app = getAppById(session.appId);
   return session.appName ? { ...app, name: session.appName } : app;
+}
+
+function isRunningSession(session) {
+  return session?.status === 'active' || session?.status === 'locked';
+}
+
+function getRunningSessionForApp(session, appId) {
+  return isRunningSession(session) && session.appId === appId ? session : null;
 }
 
 function dateMs(value) {
@@ -1618,12 +1625,19 @@ function Dashboard({ navigate, profile, session, now, stats, friends = [], invit
   );
 }
 
-function SelectAppPage({ navigate, draft, setDraft }) {
+function SelectAppPage({ navigate, draft, setDraft, session }) {
   const selectedApp = draft.appId;
+  const runningSession = getRunningSessionForApp(session, selectedApp);
 
   return (
     <>
       <PageHeader title="Choose an app" subtitle="What are you about to open?" navigate={navigate} backTo="/dashboard" />
+      {runningSession ? (
+        <div className="mb-4 rounded-lg bg-[#FFF7E6] p-3 text-sm leading-6 text-[#B54708]">
+          {getSessionApp(runningSession).name} already has a session running. Open the current session instead of
+          starting another one.
+        </div>
+      ) : null}
       <div className="space-y-3">
         {appOptions.map((app) => (
           <AppCard
@@ -1638,18 +1652,22 @@ function SelectAppPage({ navigate, draft, setDraft }) {
         className="mt-5 w-full"
         icon={ArrowRight}
         disabled={!selectedApp}
-        onClick={() => navigate('/session/purpose')}
+        onClick={() => {
+          const existingSession = getRunningSessionForApp(session, selectedApp);
+          navigate(existingSession ? (existingSession.status === 'locked' ? '/session/locked' : '/session/active') : '/session/purpose');
+        }}
       >
-        Continue
+        {runningSession ? 'Open current session' : 'Continue'}
       </Button>
     </>
   );
 }
 
-function PurposePage({ navigate, draft, setDraft }) {
+function PurposePage({ navigate, draft, setDraft, session }) {
   const app = getAppById(draft.appId);
   const purpose = draft.purpose || '';
   const ready = purpose.trim().length >= 4;
+  const runningSession = getRunningSessionForApp(session, app.id);
 
   return (
     <>
@@ -1659,6 +1677,21 @@ function PurposePage({ navigate, draft, setDraft }) {
         navigate={navigate}
         backTo="/session/select-app"
       />
+      {runningSession ? (
+        <div className="mb-4 rounded-lg border border-[#FEDF89] bg-[#FFF7E6] p-4">
+          <p className="text-sm font-semibold text-[#B54708]">{app.name} already has a session running.</p>
+          <p className="mt-1 text-sm leading-6 text-[#B54708]">
+            Continue the current session instead of creating another one for the same app.
+          </p>
+          <Button
+            className="mt-3 w-full"
+            variant="secondary"
+            onClick={() => navigate(runningSession.status === 'locked' ? '/session/locked' : '/session/active')}
+          >
+            Open current {app.name} session
+          </Button>
+        </div>
+      ) : null}
       <div className="rounded-lg border border-line bg-white p-5 shadow-soft">
         <div className="flex items-center gap-3">
           <AppLogo app={app} />
@@ -1708,17 +1741,18 @@ function PurposePage({ navigate, draft, setDraft }) {
       <Button
         className="mt-5 w-full"
         icon={ArrowRight}
-        disabled={!ready}
+        disabled={!ready || Boolean(runningSession)}
         onClick={() => navigate('/session/timer')}
       >
-        Continue
+        {runningSession ? 'Session already running' : 'Continue'}
       </Button>
     </>
   );
 }
 
-function TimerPage({ navigate, draft, setDraft, settings, startSession }) {
+function TimerPage({ navigate, draft, setDraft, settings, startSession, session }) {
   const app = getAppById(draft.appId);
+  const runningSession = getRunningSessionForApp(session, app.id);
   const defaultLock = lockDurations.includes(draft.lockDurationMinutes)
     ? draft.lockDurationMinutes
     : lockDurations.includes(settings.defaultLock)
@@ -1736,6 +1770,19 @@ function TimerPage({ navigate, draft, setDraft, settings, startSession }) {
   return (
     <>
       <PageHeader title="Set your limit" subtitle="Choose a clear stopping point." navigate={navigate} backTo="/session/purpose" />
+
+      {runningSession ? (
+        <div className="mb-4 rounded-lg border border-[#FEDF89] bg-[#FFF7E6] p-4">
+          <p className="text-sm font-semibold text-[#B54708]">{app.name} already has a session running.</p>
+          <Button
+            className="mt-3 w-full"
+            variant="secondary"
+            onClick={() => navigate(runningSession.status === 'locked' ? '/session/locked' : '/session/active')}
+          >
+            Open current session
+          </Button>
+        </div>
+      ) : null}
 
       <section className="rounded-lg border border-line bg-white p-5 shadow-sm">
         <div className="flex items-center gap-3">
@@ -1784,9 +1831,10 @@ function TimerPage({ navigate, draft, setDraft, settings, startSession }) {
       <Button
         className="mt-5 w-full"
         icon={Play}
+        disabled={Boolean(runningSession)}
         onClick={() => startSession({ ...draft, timerMinutes: timer, lockDurationMinutes: lock })}
       >
-        Start timer
+        {runningSession ? 'Session already running' : 'Start timer'}
       </Button>
     </>
   );
@@ -1881,9 +1929,6 @@ function ActiveTimerPage({ navigate, session, setSession, now, onSessionLock }) 
               </Button>
             </div>
           ) : null}
-          <Button variant="secondary" icon={PauseCircle} onClick={startLock}>
-            End session early
-          </Button>
           <Button icon={CheckCircle2} onClick={startLock}>
             I'm done
           </Button>
@@ -2330,10 +2375,7 @@ function PlacesPage({ navigate, openInvite, places = lisbonPlaces, loading }) {
             <Compass className="h-5 w-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm leading-6 text-muted">
-              These are suggested places for phone-free moments, not official phone-free zones yet.
-            </p>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span
                 className={classNames(
                   'rounded-full px-3 py-1 text-xs font-semibold',
@@ -2905,29 +2947,29 @@ function SetupPage({ navigate }) {
         <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
           <h2 className="font-semibold text-ink">Avoid the Shortcut loop</h2>
           <p className="mt-2 text-sm leading-6 text-muted">
-            iPhone automations run every time the app opens. To return to TikTok after writing your purpose, create a
-            small return Shortcut for each app and add a short bypass check to the app automation.
+            iPhone automations run every time the app opens. Use a one-time bypass file so returning to TikTok from
+            LoopOut does not immediately send you back to LoopOut again.
           </p>
           <div className="mt-4 space-y-3">
             <div className="rounded-lg bg-canvas p-3">
               <p className="text-sm font-semibold text-ink">1. App automation</p>
               <p className="mt-1 text-sm leading-6 text-muted">
-                Before opening LoopOut, check a Shortcuts file like <span className="font-semibold text-ink">LoopOutAllow-tiktok.txt</span>. If
-                the saved time is still in the future, stop the automation.
+                Before opening LoopOut, get <span className="font-semibold text-ink">LoopOutAllow-tiktok.txt</span> with
+                "error if not found" turned off. If the file exists, delete it and stop the automation.
               </p>
             </div>
             <div className="rounded-lg bg-canvas p-3">
               <p className="text-sm font-semibold text-ink">2. Return Shortcut</p>
               <p className="mt-1 text-sm leading-6 text-muted">
-                Create <span className="font-semibold text-ink">LoopOut Return TikTok</span>: save current time + 45 seconds to
+                Create <span className="font-semibold text-ink">LoopOut Return TikTok</span>: save a small text file called
                 LoopOutAllow-tiktok.txt, then open TikTok.
               </p>
             </div>
             <div className="rounded-lg bg-canvas p-3">
               <p className="text-sm font-semibold text-ink">3. LoopOut button</p>
               <p className="mt-1 text-sm leading-6 text-muted">
-                After the timer starts, tap Return to TikTok. The helper Shortcut opens TikTok without immediately
-                sending you back to LoopOut.
+                After the timer starts, tap Return to TikTok. The app automation consumes that one-time bypass and lets
+                TikTok open.
               </p>
             </div>
           </div>
@@ -3200,6 +3242,14 @@ export default function App() {
   const startSession = async (nextDraft) => {
     const startedAt = Date.now();
     const app = getAppById(nextDraft.appId);
+    const runningSession = getRunningSessionForApp(session, app.id);
+
+    if (runningSession) {
+      setBackendError(`${app.name} already has a session running.`);
+      navigate(runningSession.status === 'locked' ? '/session/locked' : '/session/active');
+      return;
+    }
+
     const cleanDraft = {
       ...nextDraft,
       appName: app.name,
@@ -3405,8 +3455,12 @@ export default function App() {
           />
         );
       }
-      if (path === '/session/select-app') return <SelectAppPage navigate={navigate} draft={draft} setDraft={setDraft} />;
-      if (path === '/session/purpose') return <PurposePage navigate={navigate} draft={draft} setDraft={setDraft} />;
+      if (path === '/session/select-app') {
+        return <SelectAppPage navigate={navigate} draft={draft} setDraft={setDraft} session={session} />;
+      }
+      if (path === '/session/purpose') {
+        return <PurposePage navigate={navigate} draft={draft} setDraft={setDraft} session={session} />;
+      }
       if (path === '/session/timer') {
         return (
           <TimerPage
@@ -3415,6 +3469,7 @@ export default function App() {
             setDraft={setDraft}
             settings={settings}
             startSession={startSession}
+            session={session}
           />
         );
       }

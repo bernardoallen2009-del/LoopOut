@@ -260,7 +260,7 @@ export const setupSteps = [
   'Choose When Opened.',
   'Add action Open URL.',
   'Paste the direct LoopOut URL for that app.',
-  'Add the no-loop bypass if you want to return to the app from LoopOut.',
+  'Add the one-time bypass check if you want to return to the app from LoopOut.',
   'Choose Run Immediately if available.',
   'Repeat with each distracting app you want to connect.',
 ];

@@ -274,6 +274,19 @@ function formatTime(timestamp) {
   return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(new Date(timestamp));
 }
 
+function formatInviteDateTime(value) {
+  if (!value) return 'Soon';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Soon';
+  const today = new Date();
+  const tomorrow = new Date();
+  tomorrow.setDate(today.getDate() + 1);
+
+  if (date.toDateString() === today.toDateString()) return `Today at ${formatTime(date)}`;
+  if (date.toDateString() === tomorrow.toDateString()) return `Tomorrow at ${formatTime(date)}`;
+  return `${formatDate(date)} at ${formatTime(date)}`;
+}
+
 function getAppById(appId) {
   return appOptions.find((app) => app.id === appId) || appOptions[1];
 }
@@ -427,6 +440,45 @@ function friendFromBundle(item) {
     isOffline,
     school: profile.area || profile.city || 'Lisbon',
   };
+}
+
+function getProfileDisplayName(profile) {
+  return profile?.full_name || profile?.username || profile?.email || 'LoopOut friend';
+}
+
+function getInvitePeer(invite, friends, currentUserId) {
+  const incoming = invite.receiver_id === currentUserId;
+  const peerId = incoming ? invite.sender_id : invite.receiver_id;
+  const friend = friends.find((item) => item.id === peerId);
+  const profile = incoming ? invite.sender : invite.receiver;
+  const name = friend?.name || getProfileDisplayName(profile);
+
+  return {
+    id: peerId,
+    name,
+    username: friend?.username || profile?.username || '',
+    avatar: friend?.avatar || getInitials(name),
+    area: friend?.area || profile?.area || profile?.city || '',
+  };
+}
+
+function getInvitePlace(invite, places = []) {
+  if (invite.place) return placeFromRecord(invite.place);
+  const placeId = invite.place_id || invite.placeId;
+  return places.find((item) => item.id === placeId) || null;
+}
+
+function getMeetingReadinessScore(friend) {
+  let score = 0;
+  if (friend.available) score += 40;
+  if (friend.isOffline) score += 30;
+  if (friend.area && friend.area !== 'Area hidden') score += 15;
+  if (friend.lockedApp && friend.lockedApp !== 'App hidden') score += 10;
+  return score;
+}
+
+function sortFriendsForMeetups(friends) {
+  return [...friends].sort((first, second) => getMeetingReadinessScore(second) - getMeetingReadinessScore(first));
 }
 
 function friendRequestFromBundle(item) {
@@ -741,6 +793,9 @@ function AppCard({ app, selected, onClick }) {
 
 function FriendCard({ friend, onInvite, privacyOn, shareArea = true }) {
   const statusLabel = friend.isOffline ? 'Offline now' : friend.available ? 'Available' : 'Recent';
+  const statusTone = friend.isOffline || friend.available ? 'bg-[#E8F8EF] text-[#137A3D]' : 'bg-soft text-deep';
+  const visibleArea = shareArea ? friend.area : 'Area hidden';
+  const visibleApp = privacyOn ? friend.lockedApp : 'App hidden';
 
   return (
     <div className="rounded-lg border border-line bg-white p-4 shadow-sm">
@@ -751,20 +806,39 @@ function FriendCard({ friend, onInvite, privacyOn, shareArea = true }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
             <p className="font-semibold text-ink">{friend.name}</p>
-            <span className="rounded-full bg-[#E8F8EF] px-2.5 py-1 text-xs font-medium text-[#137A3D]">
-              {statusLabel}
-            </span>
+            <span className={classNames('shrink-0 rounded-full px-2.5 py-1 text-xs font-medium', statusTone)}>{statusLabel}</span>
           </div>
           <p className="mt-1 text-sm text-muted">{friend.username ? `@${friend.username} · ` : ''}{friend.status}</p>
           <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted">
-            <span className="rounded-full bg-soft px-2.5 py-1">{privacyOn ? friend.lockedApp : 'App hidden'}</span>
-            <span className="rounded-full bg-soft px-2.5 py-1">{shareArea ? friend.area : 'Area hidden'}</span>
+            <span className="inline-flex items-center gap-1 rounded-full bg-soft px-2.5 py-1">
+              <Smartphone className="h-3 w-3" />
+              {visibleApp}
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-full bg-soft px-2.5 py-1">
+              <MapPin className="h-3 w-3" />
+              {visibleArea}
+            </span>
           </div>
         </div>
       </div>
-      <Button className="mt-4 w-full" variant="soft" icon={Heart} onClick={() => onInvite(friend)}>
-        Invite offline
-      </Button>
+      <div className="mt-4 rounded-lg bg-canvas p-3">
+        <p className="text-sm font-semibold text-ink">
+          {friend.available ? 'Good moment to meet' : 'Plan for later'}
+        </p>
+        <p className="mt-1 text-sm leading-5 text-muted">
+          {friend.available
+            ? `${friend.name.split(' ')[0]} is already in a phone-free window.`
+            : `Send a simple invite and agree on a place.`}
+        </p>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <Button className="px-3" variant="soft" icon={Heart} onClick={() => onInvite(friend)}>
+          Invite now
+        </Button>
+        <Button className="px-3" variant="secondary" icon={Calendar} onClick={() => onInvite(friend)}>
+          Plan
+        </Button>
+      </div>
     </div>
   );
 }
@@ -942,15 +1016,33 @@ function InviteModal({ friend, place, friends = [], places = [], onClose, onSend
   const [selectedPlace, setSelectedPlace] = useState(place?.id || placeOptions[0]?.id || '');
   const [time, setTime] = useState('Now');
   const [message, setMessage] = useState('Hey, we both finished our screen time. Want to go offline together?');
+  const selectedFriendData = friendOptions.find((item) => item.id === selectedFriend) || friend;
+  const selectedPlaceData = placeOptions.find((item) => item.id === selectedPlace) || place;
+  const recommendedPlaces = place ? [place] : placeOptions.slice(0, 4);
+  const messagePresets = [
+    {
+      label: 'Walk',
+      text: 'Want to do a phone-free walk after this session?',
+    },
+    {
+      label: 'Coffee',
+      text: 'Want to meet for a quick coffee without phones?',
+    },
+    {
+      label: 'Study',
+      text: 'Want to do a focused study block together, phones away?',
+    },
+  ];
   const canSend = Boolean(selectedFriend && selectedPlace && !sending);
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-end bg-ink/25 p-3 backdrop-blur-sm sm:place-items-center">
-      <div className="w-full max-w-md rounded-lg bg-white p-4 shadow-lift">
+      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-lg bg-white p-4 shadow-lift">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-ink">Invite offline</h2>
-            <p className="text-sm text-muted">Turn screen time into real time.</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Offline meetup</p>
+            <h2 className="text-lg font-semibold text-ink">Plan something simple</h2>
+            <p className="text-sm text-muted">Pick who, where and when. LoopOut sends the invite.</p>
           </div>
           <button
             type="button"
@@ -961,7 +1053,19 @@ function InviteModal({ friend, place, friends = [], places = [], onClose, onSend
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="mt-5 space-y-4">
+        {selectedFriendData || selectedPlaceData ? (
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <div className="rounded-lg bg-canvas p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Friend</p>
+              <p className="mt-1 truncate text-sm font-semibold text-ink">{selectedFriendData?.name || 'Choose friend'}</p>
+            </div>
+            <div className="rounded-lg bg-canvas p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Place</p>
+              <p className="mt-1 truncate text-sm font-semibold text-ink">{selectedPlaceData?.name || 'Choose place'}</p>
+            </div>
+          </div>
+        ) : null}
+        <div className="mt-5 space-y-5">
           {friendOptions.length ? (
             <label className="block">
               <span className="text-sm font-medium text-ink">Choose friend</span>
@@ -982,20 +1086,39 @@ function InviteModal({ friend, place, friends = [], places = [], onClose, onSend
               Add friends first to send offline invites.
             </div>
           )}
-          <label className="block">
-            <span className="text-sm font-medium text-ink">Choose place</span>
-            <select
-              className="mt-2 w-full rounded-lg border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-primary"
-              value={selectedPlace}
-              onChange={(event) => setSelectedPlace(event.target.value)}
-            >
-              {placeOptions.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
+          <div>
+            <p className="text-sm font-medium text-ink">Suggested places</p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {recommendedPlaces.map((item) => (
+                <button
+                  type="button"
+                  className={classNames(
+                    'min-h-16 rounded-lg border p-3 text-left text-sm transition',
+                    selectedPlace === item.id ? 'border-primary bg-soft text-deep' : 'border-line bg-white text-ink'
+                  )}
+                  key={item.id}
+                  onClick={() => setSelectedPlace(item.id)}
+                >
+                  <span className="block truncate font-semibold">{item.name}</span>
+                  <span className="mt-1 block truncate text-xs text-muted">{item.area}</span>
+                </button>
               ))}
-            </select>
-          </label>
+            </div>
+            <label className="mt-3 block">
+              <span className="text-sm font-medium text-ink">All places</span>
+              <select
+                className="mt-2 w-full rounded-lg border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-primary"
+                value={selectedPlace}
+                onChange={(event) => setSelectedPlace(event.target.value)}
+              >
+                {placeOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div>
             <p className="text-sm font-medium text-ink">Choose time</p>
             <div className="mt-2 grid grid-cols-2 gap-2">
@@ -1010,6 +1133,21 @@ function InviteModal({ friend, place, friends = [], places = [], onClose, onSend
                   onClick={() => setTime(option)}
                 >
                   {option}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-medium text-ink">Quick message</p>
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              {messagePresets.map((preset) => (
+                <button
+                  type="button"
+                  className="min-h-10 rounded-full border border-line bg-white px-3 text-sm font-semibold text-ink"
+                  key={preset.label}
+                  onClick={() => setMessage(preset.text)}
+                >
+                  {preset.label}
                 </button>
               ))}
             </div>
@@ -1029,7 +1167,7 @@ function InviteModal({ friend, place, friends = [], places = [], onClose, onSend
           disabled={!canSend}
           onClick={() => onSend({ friendId: selectedFriend, placeId: selectedPlace, time, message })}
         >
-          {sending ? 'Sending...' : 'Send invite'}
+          {sending ? 'Sending...' : 'Send meetup invite'}
         </Button>
       </div>
     </div>
@@ -2039,6 +2177,7 @@ function FriendsPage({
   friends = [],
   requests = [],
   invites = [],
+  places = [],
   currentUserId,
   isRemote,
   loading,
@@ -2047,19 +2186,34 @@ function FriendsPage({
   onRespondFriendRequest,
   onRespondInvite,
 }) {
-  const [filter, setFilter] = useState('Available now');
+  const [filter, setFilter] = useState('Best matches');
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [actionMessage, setActionMessage] = useState('');
   const [actionError, setActionError] = useState('');
-  const visibleFriends = friends;
+  const visibleFriends = useMemo(() => sortFriendsForMeetups(friends), [friends]);
+  const placeOptions = places.length ? places : lisbonPlaces;
+  const availableFriends = visibleFriends.filter((friend) => friend.available);
+  const nearbyFriends = visibleFriends.filter((friend) => friend.area && friend.area !== 'Area hidden');
+  const laterFriends = visibleFriends.filter((friend) => !friend.available);
   const pendingOfflineInvites = invites.filter((invite) => invite.status === 'pending');
+  const confirmedOfflineInvites = invites.filter((invite) => invite.status === 'accepted').slice(0, 3);
+  const incomingOfflineInvites = pendingOfflineInvites.filter((invite) => invite.receiver_id === currentUserId);
+  const outgoingOfflineInvites = pendingOfflineInvites.filter((invite) => invite.sender_id === currentUserId);
+  const bestFriend = availableFriends[0] || visibleFriends[0];
+  const bestPlace = placeOptions[0];
+  const filterOptions = [
+    { label: 'Best matches', count: visibleFriends.length },
+    { label: 'Ready now', count: availableFriends.length },
+    { label: 'Nearby', count: nearbyFriends.length },
+    { label: 'Plan later', count: laterFriends.length },
+  ];
   const filteredFriends = visibleFriends.filter((friend) => {
-    if (filter === 'Available now') return friend.available;
-    if (filter === 'Nearby') return ['Campo Grande', 'Saldanha', 'Chiado'].includes(friend.area);
-    if (filter === 'Same school/university') return friend.school.includes('Universidade') || friend.school === 'IST';
+    if (filter === 'Ready now') return friend.available;
+    if (filter === 'Nearby') return friend.area && friend.area !== 'Area hidden';
+    if (filter === 'Plan later') return !friend.available;
     return true;
   });
 
@@ -2114,7 +2268,7 @@ function FriendsPage({
 
   return (
     <>
-      <PageHeader title="Friends also offline" subtitle="You're not disconnecting alone." navigate={navigate} backTo="/dashboard" />
+      <PageHeader title="Friends & plans" subtitle="Meet people away from the scroll." navigate={navigate} backTo="/dashboard" />
 
       {!isRemote ? (
         <section className="mb-4 rounded-lg border border-line bg-white p-5 shadow-sm">
@@ -2134,6 +2288,75 @@ function FriendsPage({
 
       {isRemote ? (
         <section className="mb-4 rounded-lg border border-line bg-white p-4 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Meetup planner</p>
+              <h2 className="mt-1 text-xl font-semibold text-ink">Make an offline plan.</h2>
+              <p className="mt-1 text-sm leading-6 text-muted">
+                Choose a friend, a place and a time without leaving this page.
+              </p>
+            </div>
+            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-soft text-primary">
+              <Calendar className="h-5 w-5" />
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-lg bg-canvas p-3">
+              <p className="text-lg font-semibold text-ink">{availableFriends.length}</p>
+              <p className="text-xs text-muted">ready now</p>
+            </div>
+            <div className="rounded-lg bg-canvas p-3">
+              <p className="text-lg font-semibold text-ink">{incomingOfflineInvites.length}</p>
+              <p className="text-xs text-muted">waiting</p>
+            </div>
+            <div className="rounded-lg bg-canvas p-3">
+              <p className="text-lg font-semibold text-ink">{outgoingOfflineInvites.length}</p>
+              <p className="text-xs text-muted">sent</p>
+            </div>
+          </div>
+
+          {bestFriend ? (
+            <div className="mt-4 border-t border-line pt-4">
+              <p className="text-sm font-semibold text-ink">Best plan right now</p>
+              <div className="mt-3 flex items-start gap-3">
+                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-soft font-semibold text-deep">
+                  {bestFriend.avatar}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-ink">{bestFriend.name}</p>
+                  <p className="mt-1 text-sm leading-5 text-muted">
+                    {bestFriend.available ? `${bestFriend.status}.` : 'Not offline right now, but ready to plan.'}
+                  </p>
+                  <p className="mt-2 inline-flex max-w-full items-center gap-1 rounded-full bg-soft px-2.5 py-1 text-xs font-medium text-deep">
+                    <MapPin className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{bestPlace?.name || 'Choose a phone-free place'}</span>
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <Button variant="soft" className="px-3" icon={Heart} onClick={() => openInvite(bestFriend, bestPlace)}>
+                  Invite
+                </Button>
+                <Button variant="secondary" className="px-3" icon={MapPin} onClick={() => navigate('/places')}>
+                  Pick place
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-4 rounded-lg bg-canvas p-3 text-sm leading-6 text-muted">
+              Add your first friend below, then LoopOut can suggest who to meet and where to go.
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {isRemote ? (
+        <section className="mb-4 rounded-lg border border-line bg-white p-4 shadow-sm">
+          <div className="mb-3">
+            <h2 className="font-semibold text-ink">Add friends</h2>
+            <p className="mt-1 text-sm leading-6 text-muted">Search by username or email and send a request.</p>
+          </div>
           <div className="flex items-center gap-2">
             <div className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
@@ -2214,18 +2437,38 @@ function FriendsPage({
         </section>
       ) : null}
 
-      {isRemote && pendingOfflineInvites.length ? (
+      {isRemote && (pendingOfflineInvites.length || confirmedOfflineInvites.length) ? (
         <section className="mb-4 rounded-lg border border-line bg-white p-4 shadow-sm">
-          <h2 className="font-semibold text-ink">Offline invites</h2>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="font-semibold text-ink">Plans and invites</h2>
+              <p className="mt-1 text-sm text-muted">Accept, cancel or open the place when you are ready.</p>
+            </div>
+            <span className="rounded-full bg-soft px-3 py-1 text-xs font-semibold text-deep">
+              {pendingOfflineInvites.length + confirmedOfflineInvites.length}
+            </span>
+          </div>
           <div className="mt-3 space-y-2">
             {pendingOfflineInvites.map((invite) => {
               const incoming = invite.receiver_id === currentUserId;
+              const peer = getInvitePeer(invite, visibleFriends, currentUserId);
+              const invitePlace = getInvitePlace(invite, placeOptions);
               return (
                 <div className="rounded-lg bg-canvas p-3" key={invite.id}>
-                  <p className="text-sm font-semibold text-ink">
-                    {incoming ? 'New invite' : 'Invite sent'} · {invite.place?.name || 'Phone-free place'}
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-muted">
+                  <div className="flex items-start gap-3">
+                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white font-semibold text-deep">
+                      {peer.avatar}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-ink">
+                        {incoming ? `Invite from ${peer.name}` : `Waiting for ${peer.name}`}
+                      </p>
+                      <p className="mt-1 text-xs text-muted">
+                        {invitePlace?.name || 'Phone-free place'} · {formatInviteDateTime(invite.suggested_time)}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="mt-3 text-xs leading-5 text-muted">
                     {invite.message || 'Meet offline after this LoopOut session.'}
                   </p>
                   <div className="mt-3 grid grid-cols-2 gap-2">
@@ -2244,6 +2487,45 @@ function FriendsPage({
                       </Button>
                     )}
                   </div>
+                  {invitePlace ? (
+                    <Button
+                      variant="ghost"
+                      className="mt-2 w-full"
+                      icon={MapPin}
+                      onClick={() => window.open(getGoogleMapsUrl(invitePlace), '_blank', 'noopener,noreferrer')}
+                    >
+                      Open place
+                    </Button>
+                  ) : null}
+                </div>
+              );
+            })}
+            {confirmedOfflineInvites.map((invite) => {
+              const peer = getInvitePeer(invite, visibleFriends, currentUserId);
+              const invitePlace = getInvitePlace(invite, placeOptions);
+              return (
+                <div className="rounded-lg bg-[#E8F8EF] p-3" key={invite.id}>
+                  <div className="flex items-start gap-3">
+                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white font-semibold text-deep">
+                      {peer.avatar}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-ink">Confirmed with {peer.name}</p>
+                      <p className="mt-1 text-xs text-[#137A3D]">
+                        {invitePlace?.name || 'Phone-free place'} · {formatInviteDateTime(invite.suggested_time)}
+                      </p>
+                    </div>
+                  </div>
+                  {invitePlace ? (
+                    <Button
+                      variant="secondary"
+                      className="mt-3 w-full"
+                      icon={MapPin}
+                      onClick={() => window.open(getGoogleMapsUrl(invitePlace), '_blank', 'noopener,noreferrer')}
+                    >
+                      Open place
+                    </Button>
+                  ) : null}
                 </div>
               );
             })}
@@ -2252,20 +2534,26 @@ function FriendsPage({
       ) : null}
 
       {visibleFriends.length ? (
-        <div className="flex gap-2 overflow-x-auto pb-3">
-          {['Available now', 'Nearby', 'Same school/university', 'Offline today'].map((item) => (
-            <button
-              type="button"
-              className={classNames(
-                'min-h-10 shrink-0 rounded-full border px-4 text-sm font-semibold',
-                filter === item ? 'border-primary bg-primary text-white' : 'border-line bg-white text-ink'
-              )}
-              key={item}
-              onClick={() => setFilter(item)}
-            >
-              {item}
-            </button>
-          ))}
+        <div className="mb-3">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h2 className="font-semibold text-ink">Friends</h2>
+            <p className="text-xs font-medium text-muted">{visibleFriends.length} connected</p>
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {filterOptions.map((item) => (
+              <button
+                type="button"
+                className={classNames(
+                  'min-h-10 shrink-0 rounded-full border px-4 text-sm font-semibold',
+                  filter === item.label ? 'border-primary bg-primary text-white' : 'border-line bg-white text-ink'
+                )}
+                key={item.label}
+                onClick={() => setFilter(item.label)}
+              >
+                {item.label} {item.count ? `(${item.count})` : ''}
+              </button>
+            ))}
+          </div>
         </div>
       ) : null}
       {loading ? (
@@ -2287,11 +2575,15 @@ function FriendsPage({
           <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-soft text-primary">
             <Users className="h-6 w-6" />
           </div>
-          <h2 className="mt-4 text-xl font-semibold text-ink">Add friends to go offline together.</h2>
+          <h2 className="mt-4 text-xl font-semibold text-ink">
+            {visibleFriends.length ? 'No friends in this group yet.' : 'Add friends to go offline together.'}
+          </h2>
           <p className="mt-2 text-sm leading-6 text-muted">
-            {isRemote
-              ? 'Search by username or email, then invite accepted friends to a phone-free place.'
-              : 'Sign in with Supabase to search for friends and send requests.'}
+            {visibleFriends.length
+              ? 'Try Best matches or send a plan for later.'
+              : isRemote
+                ? 'Search by username or email, then invite accepted friends to a phone-free place.'
+                : 'Sign in with Supabase to search for friends and send requests.'}
           </p>
         </div>
       )}
@@ -3507,6 +3799,7 @@ export default function App() {
             friends={activeFriends}
             requests={friendRequests}
             invites={activeInvites}
+            places={activePlaces}
             currentUserId={authUser?.id}
             isRemote={isRemote}
             loading={dataLoading}

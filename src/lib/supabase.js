@@ -440,7 +440,9 @@ export async function fetchInvites(userId) {
   assertSupabase();
   const { data, error } = await supabase
     .from('offline_invites')
-    .select('*, place:phone_free_places(*)')
+    .select(
+      '*, place:phone_free_places(*), sender:profiles!offline_invites_sender_id_fkey(id, full_name, username, email, area, city), receiver:profiles!offline_invites_receiver_id_fkey(id, full_name, username, email, area, city)'
+    )
     .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
     .order('created_at', { ascending: false });
   if (error) throw error;

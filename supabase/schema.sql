@@ -177,6 +177,8 @@ create index if not exists sessions_user_status_started_idx on public.sessions (
 create index if not exists offline_status_user_idx on public.offline_status (user_id);
 create index if not exists friendships_requester_status_idx on public.friendships (requester_id, status);
 create index if not exists friendships_receiver_status_idx on public.friendships (receiver_id, status);
+create unique index if not exists friendships_unique_pair_idx
+on public.friendships (least(requester_id, receiver_id), greatest(requester_id, receiver_id));
 create index if not exists offline_invites_sender_status_idx on public.offline_invites (sender_id, status, created_at desc);
 create index if not exists offline_invites_receiver_status_idx on public.offline_invites (receiver_id, status, created_at desc);
 create index if not exists phone_free_places_city_type_idx on public.phone_free_places (city, type);

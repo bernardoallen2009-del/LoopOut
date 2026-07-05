@@ -401,25 +401,74 @@ export async function searchProfiles(query, currentUserId) {
   const safeQuery = query.trim();
   if (safeQuery.length < 2) return [];
 
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, full_name, username, email, avatar_url, city, area, allow_friend_requests, hide_profile_from_search')
-    .neq('id', currentUserId)
-    .eq('allow_friend_requests', true)
-    .eq('hide_profile_from_search', false)
-    .or(`username.ilike.%${safeQuery}%,email.ilike.%${safeQuery}%,full_name.ilike.%${safeQuery}%`)
-    .limit(8);
+  const [{ data, error }, { data: friendships, error: friendshipsError }] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('id, full_name, username, email, avatar_url, city, area, allow_friend_requests, hide_profile_from_search')
+      .neq('id', currentUserId)
+      .eq('allow_friend_requests', true)
+      .eq('hide_profile_from_search', false)
+      .or(`username.ilike.%${safeQuery}%,email.ilike.%${safeQuery}%,full_name.ilike.%${safeQuery}%`)
+      .limit(8),
+    supabase
+      .from('friendships')
+      .select('requester_id, receiver_id, status')
+      .or(`requester_id.eq.${currentUserId},receiver_id.eq.${currentUserId}`),
+  ]);
   if (error) throw error;
-  return data || [];
+  if (friendshipsError) throw friendshipsError;
+
+  const connectedIds = new Set(
+    (friendships || [])
+      .filter((item) => item.status === 'pending' || item.status === 'accepted')
+      .map((item) => (item.requester_id === currentUserId ? item.receiver_id : item.requester_id))
+  );
+
+  return (data || []).filter((profile) => !connectedIds.has(profile.id));
 }
 
 export async function sendFriendRequest(requesterId, receiverId) {
   assertSupabase();
+  if (requesterId === receiverId) throw new Error('You cannot add yourself.');
+
+  const { data: existingRows, error: existingError } = await supabase
+    .from('friendships')
+    .select('*')
+    .or(
+      `and(requester_id.eq.${requesterId},receiver_id.eq.${receiverId}),and(requester_id.eq.${receiverId},receiver_id.eq.${requesterId})`
+    )
+    .order('created_at', { ascending: false })
+    .limit(5);
+  if (existingError) throw existingError;
+
+  const existing = existingRows || [];
+  const activeFriendship = existing.find((item) => item.status === 'accepted' || item.status === 'pending');
+  if (activeFriendship?.status === 'accepted') throw new Error('You are already friends with this person.');
+  if (activeFriendship?.status === 'pending') throw new Error('There is already a pending request with this person.');
+
+  const declinedFriendship = existing.find((item) => item.status === 'declined');
+  if (declinedFriendship) {
+    const { data, error } = await supabase
+      .from('friendships')
+      .update({
+        requester_id: requesterId,
+        receiver_id: receiverId,
+        status: 'pending',
+        created_at: new Date().toISOString(),
+      })
+      .eq('id', declinedFriendship.id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
   const { data, error } = await supabase
     .from('friendships')
     .insert({ requester_id: requesterId, receiver_id: receiverId, status: 'pending' })
     .select()
     .single();
+  if (error?.code === '23505') throw new Error('This person is already in your friends or requests.');
   if (error) throw error;
   return data;
 }

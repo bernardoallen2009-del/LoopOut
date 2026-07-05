@@ -124,23 +124,37 @@ function useLocalStorage(key, initialValue) {
   return [value, setValue];
 }
 
+function getCurrentRoute() {
+  return {
+    path: window.location.pathname || '/',
+    search: window.location.search || '',
+  };
+}
+
 function useRoute() {
-  const [path, setPath] = useState(() => window.location.pathname || '/');
+  const [route, setRoute] = useState(getCurrentRoute);
 
   useEffect(() => {
-    const onPopState = () => setPath(window.location.pathname || '/');
+    const onPopState = () => setRoute(getCurrentRoute());
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
   const navigate = (nextPath) => {
-    if (nextPath === path) return;
-    window.history.pushState({}, '', nextPath);
-    setPath(nextPath);
+    const nextUrl = new URL(nextPath, window.location.origin);
+    const nextRoute = {
+      path: nextUrl.pathname || '/',
+      search: nextUrl.search || '',
+    };
+    if (nextRoute.path === route.path && nextRoute.search === route.search) return;
+    window.history.pushState({}, '', `${nextRoute.path}${nextRoute.search}`);
+    setRoute(nextRoute);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  return { path, navigate };
+  const searchParams = useMemo(() => new URLSearchParams(route.search), [route.search]);
+
+  return { path: route.path, search: route.search, searchParams, navigate };
 }
 
 function useNow() {
@@ -263,6 +277,14 @@ function formatTime(timestamp) {
 
 function getAppById(appId) {
   return appOptions.find((app) => app.id === appId) || appOptions[1];
+}
+
+function isKnownAppId(appId) {
+  return appOptions.some((app) => app.id === appId);
+}
+
+function getPurposeUrl(appId) {
+  return `${window.location.origin}/session/purpose?app=${encodeURIComponent(appId)}`;
 }
 
 function getSessionApp(session) {
@@ -1292,7 +1314,7 @@ function Onboarding({ navigate, setOnboarded }) {
   );
 }
 
-function AuthPage({ navigate, profile, onAuthReady }) {
+function AuthPage({ navigate, profile, onAuthReady, returnTo }) {
   const [mode, setMode] = useState('signup');
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
@@ -1329,7 +1351,7 @@ function AuthPage({ navigate, profile, onAuthReady }) {
 
       if (result.session || mode === 'login') {
         await onAuthReady?.(result.user);
-        navigate('/dashboard');
+        navigate(returnTo || '/dashboard');
       } else {
         setMessage('Account created. Check your email if your Supabase project requires confirmation.');
       }
@@ -2801,16 +2823,17 @@ function ToggleRow({ label, checked, onChange }) {
 }
 
 function SetupPage({ navigate }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState('');
   const loopoutUrl = `${window.location.origin}/session/select-app`;
+  const shortcutApps = appOptions.filter((app) => !['custom', 'games'].includes(app.id));
 
-  const copyUrl = async () => {
+  const copyUrl = async (value = loopoutUrl, copiedKey = 'default') => {
     try {
-      await navigator.clipboard.writeText(loopoutUrl);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1800);
+      await navigator.clipboard.writeText(value);
+      setCopied(copiedKey);
+      window.setTimeout(() => setCopied(''), 1800);
     } catch {
-      setCopied(false);
+      setCopied('');
     }
   };
 
@@ -2826,9 +2849,34 @@ function SetupPage({ navigate }) {
           <p className="mt-3 leading-7 text-muted">
             Whenever you open a selected app, iPhone can open LoopOut first so you write a purpose and set a timer.
           </p>
-          <Button className="mt-5 w-full" variant="soft" icon={Copy} onClick={copyUrl}>
-            {copied ? 'Copied' : 'Copy my LoopOut URL'}
+          <Button className="mt-5 w-full" variant="soft" icon={Copy} onClick={() => copyUrl(loopoutUrl, 'default')}>
+            {copied === 'default' ? 'Copied' : 'Copy general LoopOut URL'}
           </Button>
+        </section>
+
+        <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+          <h2 className="font-semibold text-ink">Direct app links</h2>
+          <p className="mt-2 text-sm leading-6 text-muted">
+            Use one link per Shortcut automation so TikTok opens straight on the TikTok purpose screen, Instagram opens
+            straight on Instagram, and so on.
+          </p>
+          <div className="mt-4 space-y-2">
+            {shortcutApps.map((app) => {
+              const purposeUrl = getPurposeUrl(app.id);
+              return (
+                <div className="flex items-center gap-3 rounded-lg bg-canvas p-3" key={app.id}>
+                  <AppLogo app={app} className="h-10 w-10 rounded-[10px]" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-ink">{app.name}</p>
+                    <p className="truncate text-xs text-muted">{purposeUrl}</p>
+                  </div>
+                  <Button variant="secondary" className="px-3" icon={Copy} onClick={() => copyUrl(purposeUrl, app.id)}>
+                    {copied === app.id ? 'Copied' : 'Copy'}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
         </section>
 
         <section className="mt-4 space-y-3">
@@ -2899,7 +2947,7 @@ function BackendRequiredScreen({ navigate }) {
 }
 
 export default function App() {
-  const { path, navigate } = useRoute();
+  const { path, search, searchParams, navigate } = useRoute();
   const now = useNow();
   const [profile, setProfile] = useLocalStorage(storageKeys.profile, defaultProfile);
   const [settings, setSettings] = useLocalStorage(storageKeys.settings, defaultSettings);
@@ -2932,6 +2980,13 @@ export default function App() {
   const activeInvites = isRemote ? remoteInvites : invites;
   const activePlaces = places.length ? places : lisbonPlaces;
   const activeStats = progressStats || fallbackProgressSnapshot(session, activeInvites, screenTimeLogs);
+  const requestedAppId = searchParams.get('app');
+  const currentRoute = `${path}${search}`;
+
+  useEffect(() => {
+    if (path !== '/session/purpose' || !isKnownAppId(requestedAppId)) return;
+    setDraft((current) => (current.appId === requestedAppId ? current : { ...current, appId: requestedAppId }));
+  }, [path, requestedAppId, setDraft]);
 
   const loadRemoteData = useCallback(
     async (user) => {
@@ -3261,6 +3316,7 @@ export default function App() {
           navigate={navigate}
           profile={profile}
           onAuthReady={(user) => loadRemoteData(user)}
+          returnTo={currentRoute}
         />
       );
     }

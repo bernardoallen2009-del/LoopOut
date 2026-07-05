@@ -54,7 +54,14 @@ function resolveSupabaseConfig(url, anonKey) {
 
 export const supabaseConfig = resolveSupabaseConfig(rawUrl, rawAnonKey);
 export const supabase = supabaseConfig.url && supabaseConfig.anonKey && !supabaseConfig.error
-  ? createClient(supabaseConfig.url, supabaseConfig.anonKey)
+  ? createClient(supabaseConfig.url, supabaseConfig.anonKey, {
+      auth: {
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        persistSession: true,
+        storageKey: 'loopout.supabase.auth',
+      },
+    })
   : null;
 export const isSupabaseConfigured = Boolean(supabase);
 export const supabaseConfigError = supabaseConfig.error || '';

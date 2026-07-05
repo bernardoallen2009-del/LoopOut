@@ -256,12 +256,12 @@ export const setupSteps = [
   'Tap Automation.',
   'Create a new personal automation.',
   'Choose App.',
-  'Select TikTok, Instagram or YouTube.',
+  'Select one app, like TikTok or Instagram.',
   'Choose When Opened.',
   'Add action Open URL.',
-  'Paste your LoopOut session URL.',
+  'Paste the direct LoopOut URL for that app.',
   'Choose Run Immediately if available.',
-  'Test by opening the selected app.',
+  'Repeat with each distracting app you want to connect.',
 ];
 
 export const weeklySaved = [18, 24, 12, 35, 22, 42, 27];

@@ -287,6 +287,11 @@ function getPurposeUrl(appId) {
   return `${window.location.origin}/session/purpose?app=${encodeURIComponent(appId)}`;
 }
 
+function getReturnShortcutUrl(app) {
+  if (!app?.returnShortcut) return '';
+  return `shortcuts://run-shortcut?name=${encodeURIComponent(app.returnShortcut)}`;
+}
+
 function getSessionApp(session) {
   if (!session) return null;
   const app = getAppById(session.appId);
@@ -1827,6 +1832,7 @@ function ActiveTimerPage({ navigate, session, setSession, now, onSessionLock }) 
   const total = session.endsAt - session.startedAt;
   const remaining = Math.max(0, session.endsAt - now);
   const progress = total > 0 ? (now - session.startedAt) / total : 0;
+  const returnShortcutUrl = getReturnShortcutUrl(app);
 
   const startLock = () => {
     const lockStartedAt = Date.now();
@@ -1858,6 +1864,23 @@ function ActiveTimerPage({ navigate, session, setSession, now, onSessionLock }) 
           <ProgressRing progress={progress} label={formatTimer(remaining)} />
         </div>
         <div className="mt-6 grid gap-3">
+          {returnShortcutUrl ? (
+            <div className="rounded-lg bg-soft p-3 text-left">
+              <p className="text-sm font-semibold text-ink">Ready to continue in {app.name}?</p>
+              <p className="mt-1 text-xs leading-5 text-muted">
+                Use the return Shortcut so iPhone does not immediately send you back to LoopOut.
+              </p>
+              <Button
+                className="mt-3 w-full"
+                icon={ArrowRight}
+                onClick={() => {
+                  window.location.href = returnShortcutUrl;
+                }}
+              >
+                Return to {app.name}
+              </Button>
+            </div>
+          ) : null}
           <Button variant="secondary" icon={PauseCircle} onClick={startLock}>
             End session early
           </Button>
@@ -2876,6 +2899,37 @@ function SetupPage({ navigate }) {
                 </div>
               );
             })}
+          </div>
+        </section>
+
+        <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+          <h2 className="font-semibold text-ink">Avoid the Shortcut loop</h2>
+          <p className="mt-2 text-sm leading-6 text-muted">
+            iPhone automations run every time the app opens. To return to TikTok after writing your purpose, create a
+            small return Shortcut for each app and add a short bypass check to the app automation.
+          </p>
+          <div className="mt-4 space-y-3">
+            <div className="rounded-lg bg-canvas p-3">
+              <p className="text-sm font-semibold text-ink">1. App automation</p>
+              <p className="mt-1 text-sm leading-6 text-muted">
+                Before opening LoopOut, check a Shortcuts file like <span className="font-semibold text-ink">LoopOutAllow-tiktok.txt</span>. If
+                the saved time is still in the future, stop the automation.
+              </p>
+            </div>
+            <div className="rounded-lg bg-canvas p-3">
+              <p className="text-sm font-semibold text-ink">2. Return Shortcut</p>
+              <p className="mt-1 text-sm leading-6 text-muted">
+                Create <span className="font-semibold text-ink">LoopOut Return TikTok</span>: save current time + 45 seconds to
+                LoopOutAllow-tiktok.txt, then open TikTok.
+              </p>
+            </div>
+            <div className="rounded-lg bg-canvas p-3">
+              <p className="text-sm font-semibold text-ink">3. LoopOut button</p>
+              <p className="mt-1 text-sm leading-6 text-muted">
+                After the timer starts, tap Return to TikTok. The helper Shortcut opens TikTok without immediately
+                sending you back to LoopOut.
+              </p>
+            </div>
           </div>
         </section>
 

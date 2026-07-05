@@ -1,9 +1,9 @@
 export const appOptions = [
-  { id: 'tiktok', name: 'TikTok', category: 'Short video', glyph: 'Tk', logo: 'tiktok', tone: '#111827' },
-  { id: 'instagram', name: 'Instagram', category: 'Social', glyph: 'Ig', logo: 'instagram', tone: '#F0447A' },
-  { id: 'youtube', name: 'YouTube Shorts', category: 'Short video', glyph: 'Yt', logo: 'youtube', tone: '#FF2D2D' },
-  { id: 'snapchat', name: 'Snapchat', category: 'Messaging', glyph: 'Sc', logo: 'snapchat', tone: '#FACC15' },
-  { id: 'x', name: 'X', category: 'News feed', glyph: 'X', logo: 'x', tone: '#0B1220' },
+  { id: 'tiktok', name: 'TikTok', category: 'Short video', glyph: 'Tk', logo: 'tiktok', tone: '#111827', returnShortcut: 'LoopOut Return TikTok' },
+  { id: 'instagram', name: 'Instagram', category: 'Social', glyph: 'Ig', logo: 'instagram', tone: '#F0447A', returnShortcut: 'LoopOut Return Instagram' },
+  { id: 'youtube', name: 'YouTube Shorts', category: 'Short video', glyph: 'Yt', logo: 'youtube', tone: '#FF2D2D', returnShortcut: 'LoopOut Return YouTube' },
+  { id: 'snapchat', name: 'Snapchat', category: 'Messaging', glyph: 'Sc', logo: 'snapchat', tone: '#FACC15', returnShortcut: 'LoopOut Return Snapchat' },
+  { id: 'x', name: 'X', category: 'News feed', glyph: 'X', logo: 'x', tone: '#0B1220', returnShortcut: 'LoopOut Return X' },
   { id: 'netflix', name: 'Netflix', category: 'Streaming', glyph: 'Nf', logo: 'netflix', tone: '#E50914' },
   { id: 'discord', name: 'Discord', category: 'Community', glyph: 'Dc', logo: 'discord', tone: '#5865F2' },
   { id: 'games', name: 'Games', category: 'Entertainment', glyph: 'Gm', logo: 'games', tone: '#22C55E' },
@@ -260,6 +260,7 @@ export const setupSteps = [
   'Choose When Opened.',
   'Add action Open URL.',
   'Paste the direct LoopOut URL for that app.',
+  'Add the no-loop bypass if you want to return to the app from LoopOut.',
   'Choose Run Immediately if available.',
   'Repeat with each distracting app you want to connect.',
 ];

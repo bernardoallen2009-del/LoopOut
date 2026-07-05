@@ -3081,8 +3081,15 @@ export default function App() {
 
   useEffect(() => {
     if (path !== '/session/purpose' || !isKnownAppId(requestedAppId)) return;
+
+    const runningSession = getRunningSessionForApp(session, requestedAppId);
+    if (runningSession) {
+      navigate(runningSession.status === 'locked' ? '/session/locked' : '/session/active');
+      return;
+    }
+
     setDraft((current) => (current.appId === requestedAppId ? current : { ...current, appId: requestedAppId }));
-  }, [path, requestedAppId, setDraft]);
+  }, [path, requestedAppId, session, setDraft]);
 
   const loadRemoteData = useCallback(
     async (user) => {

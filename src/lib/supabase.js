@@ -96,6 +96,14 @@ export function normalizeSupabaseError(error) {
     return new Error('Could not reach Supabase. Check that VITE_SUPABASE_URL is the project API URL and redeploy.');
   }
 
+  if (message.includes('profiles_username_key') || (message.includes('duplicate key value') && message.includes('username'))) {
+    return new Error('That username is already taken. Try another one.');
+  }
+
+  if (message.includes('profiles_email_key') || message.includes('User already registered')) {
+    return new Error('That email already has a LoopOut account. Try logging in instead.');
+  }
+
   return error;
 }
 
@@ -189,14 +197,16 @@ export function subscribeToAuthChanges(callback) {
   return () => data.subscription.unsubscribe();
 }
 
-export async function signUpWithEmail({ email, password, name, city }) {
+export async function signUpWithEmail({ email, password, name, username, city }) {
   assertSupabase();
+  const cleanUsername = slugUsername(username || name, email);
   let { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
       data: {
         full_name: name,
+        username: cleanUsername,
         city: city || 'Lisbon',
       },
     },
@@ -208,6 +218,7 @@ export async function signUpWithEmail({ email, password, name, city }) {
       password,
       data: {
         full_name: name,
+        username: cleanUsername,
         city: city || 'Lisbon',
       },
     });
@@ -220,7 +231,7 @@ export async function signUpWithEmail({ email, password, name, city }) {
     await upsertProfile(data.user.id, {
       email,
       full_name: name,
-      username: `${slugUsername(name, email)}_${data.user.id.slice(0, 5)}`,
+      username: cleanUsername || `${slugUsername(name, email)}_${data.user.id.slice(0, 5)}`,
       city: city || 'Lisbon',
     });
   }

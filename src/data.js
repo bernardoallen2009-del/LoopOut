@@ -18,7 +18,7 @@ export const purposeExamples = [
 ];
 
 export const quickTimers = [5, 10, 15, 20];
-export const lockDurations = [15, 30, 45, 60];
+export const lockDurations = [30, 45, 60];
 
 export const onboardingSlides = [
   {
@@ -229,10 +229,10 @@ export const lisbonPlaces = [
   },
   {
     id: 'saldanha-cafes',
-    name: 'Saldanha study cafes placeholder',
+    name: 'Saldanha study cafe area',
     type: 'Cafes',
     area: 'Saldanha',
-    description: 'A placeholder cluster for quiet study cafes around Saldanha.',
+    description: 'A central area with practical cafe options for short study sprints and low-pressure meetups.',
     activity: 'Study cafe sprint',
     suggestion: 'Pick one cafe and agree on a phone-free study sprint.',
     score: 3,
@@ -240,10 +240,10 @@ export const lisbonPlaces = [
   },
   {
     id: 'chiado-cafes',
-    name: 'Chiado quiet cafes placeholder',
+    name: 'Chiado quiet cafe area',
     type: 'Cafes',
     area: 'Chiado',
-    description: 'A placeholder cluster for calmer cafes near Chiado.',
+    description: 'A walkable meeting area with calmer cafe corners for quick phone-free catch-ups.',
     activity: 'Quiet catch-up',
     suggestion: 'Choose a table and keep phones away while you talk.',
     score: 3,

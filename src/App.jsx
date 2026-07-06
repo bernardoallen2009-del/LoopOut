@@ -104,6 +104,8 @@ const defaultSettings = {
   hideProfileFromSearch: false,
 };
 
+const maxUsageMinutes = 40;
+
 function readStorage(key, fallback) {
   try {
     const value = localStorage.getItem(key);
@@ -988,7 +990,7 @@ function PhoneFreeMap({ places, userLocation }) {
       <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
         <div>
           <h2 className="font-semibold text-ink">Phone-free map</h2>
-          <p className="text-sm text-muted">{places.length} suggested pins in Lisbon</p>
+          <p className="text-sm text-muted">{places.length} mapped places in Lisbon</p>
         </div>
         <span className="rounded-full bg-soft px-3 py-1 text-xs font-semibold text-deep">Live pins</span>
       </div>
@@ -1295,7 +1297,7 @@ function Landing({ navigate }) {
           <InfoPanel
             eyebrow="Limit"
             title="Use preset timers and finish with a real stopping point."
-            body="No endless custom loop. Clear choices keep the flow simple."
+            body="Preset defaults keep the flow quick, with a clear end before the break starts."
             icon={Timer}
           />
           <InfoPanel
@@ -1431,8 +1433,8 @@ function Onboarding({ navigate, setOnboarded }) {
             <p className="mt-4 text-lg leading-8 text-muted">{slide.text}</p>
             {index === 3 ? (
               <p className="mt-5 rounded-lg bg-canvas p-3 text-sm leading-6 text-muted">
-                LoopOut currently simulates app locking. Connect it with iPhone Shortcuts to create a pause before
-                opening distracting apps.
+                LoopOut is a PWA, so iPhone Shortcuts creates the app-opening pause while LoopOut manages the purpose,
+                timer and break flow.
               </p>
             ) : null}
           </div>
@@ -1471,6 +1473,7 @@ function AuthPage({ navigate, profile, onAuthReady, returnTo }) {
   const [error, setError] = useState('');
   const [form, setForm] = useState({
     name: profile.name || '',
+    username: profile.username || '',
     email: profile.email || '',
     password: '',
     city: profile.city || 'Lisbon',
@@ -1483,6 +1486,7 @@ function AuthPage({ navigate, profile, onAuthReady, returnTo }) {
     setError('');
 
     const name = form.name.trim() || 'LoopOut user';
+    const username = form.username.trim();
     const email = form.email.trim();
 
     try {
@@ -1493,10 +1497,13 @@ function AuthPage({ navigate, profile, onAuthReady, returnTo }) {
       if (!email || !form.password) {
         throw new Error('Add your email and password.');
       }
+      if (mode === 'signup' && form.password.length < 6) {
+        throw new Error('Use at least 6 characters for your password.');
+      }
 
       const result =
         mode === 'signup'
-          ? await signUpWithEmail({ email, password: form.password, name, city: form.city.trim() || 'Lisbon' })
+          ? await signUpWithEmail({ email, password: form.password, name, username, city: form.city.trim() || 'Lisbon' })
           : await signInWithEmail({ email, password: form.password });
 
       if (result.session || mode === 'login') {
@@ -1551,7 +1558,14 @@ function AuthPage({ navigate, profile, onAuthReady, returnTo }) {
           ) : null}
           <form className="mt-6 space-y-4" onSubmit={submit}>
             {mode === 'signup' ? (
-              <Field label="Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
+              <>
+                <Field label="Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
+                <Field
+                  label="Username"
+                  value={form.username}
+                  onChange={(value) => setForm({ ...form, username: value.toLowerCase().replace(/[^a-z0-9_]/g, '') })}
+                />
+              </>
             ) : null}
             <Field
               label="Email"
@@ -1649,11 +1663,33 @@ function Dashboard({ navigate, profile, session, now, stats, friends = [], invit
   const today = stats?.today || {};
   const offlineFriends = friends.filter((friend) => friend.isOffline || friend.available).length;
   const pendingInvites = invites.filter((invite) => invite.status === 'pending' || invite.status === 'sent').length;
+  const acceptedInvites = invites.filter((invite) => invite.status === 'accepted').length;
   const todayCards = [
     ['Intentional sessions', loading ? '...' : String(today.completedSessions ?? 0)],
     ['Intentional minutes', loading ? '...' : formatMinutes(today.intentionalMinutes ?? 0)],
     ['Lock minutes', loading ? '...' : formatMinutes(today.lockMinutes ?? 0)],
     ['Friends offline', loading ? '...' : String(offlineFriends)],
+  ];
+  const nextActions = [
+    {
+      title: active || locked ? 'Open current session' : 'Start a LoopOut session',
+      text: active || locked ? `${currentApp.name} is still protected.` : 'Choose an app and write your purpose first.',
+      icon: active || locked ? LockKeyhole : Play,
+      onClick: () => navigate(active ? '/session/active' : locked ? '/session/locked' : '/session/select-app'),
+      primary: true,
+    },
+    {
+      title: pendingInvites ? `${pendingInvites} invite${pendingInvites === 1 ? '' : 's'} waiting` : 'Plan with friends',
+      text: pendingInvites ? 'Review meetup invites from friends.' : 'See who is offline and suggest a place.',
+      icon: Users,
+      onClick: () => navigate('/friends'),
+    },
+    {
+      title: 'Find a place',
+      text: 'Open nearby phone-free places in Lisbon.',
+      icon: MapPin,
+      onClick: () => navigate('/places'),
+    },
   ];
 
   return (
@@ -1701,6 +1737,41 @@ function Dashboard({ navigate, profile, session, now, stats, friends = [], invit
         <Button className="mt-5 w-full" icon={ArrowRight} onClick={() => navigate('/session/select-app')}>
           Start
         </Button>
+      </section>
+
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-muted">Next best actions</p>
+            <h2 className="mt-1 text-xl font-semibold text-ink">Keep the habit moving.</h2>
+          </div>
+          <Sparkles className="h-5 w-5 text-primary" />
+        </div>
+        <div className="mt-4 space-y-2">
+          {nextActions.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                type="button"
+                className={classNames(
+                  'flex w-full items-center gap-3 rounded-lg border p-3 text-left transition active:scale-[0.99]',
+                  item.primary ? 'border-primary bg-soft' : 'border-line bg-canvas'
+                )}
+                key={item.title}
+                onClick={item.onClick}
+              >
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-primary shadow-sm">
+                  <Icon className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-ink">{item.title}</p>
+                  <p className="truncate text-xs text-muted">{item.text}</p>
+                </div>
+                <ArrowRight className="h-4 w-4 shrink-0 text-primary" />
+              </button>
+            );
+          })}
+        </div>
       </section>
 
       <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
@@ -1758,6 +1829,23 @@ function Dashboard({ navigate, profile, session, now, stats, friends = [], invit
           </div>
         ) : null}
       </section>
+
+      {!isRemote ? (
+        <section className="mt-4 rounded-lg border border-line bg-white p-4 shadow-sm">
+          <p className="text-sm font-semibold text-ink">Finish account setup</p>
+          <p className="mt-1 text-sm leading-6 text-muted">
+            Sign in to keep sessions, friends, invites and progress synced across visits.
+          </p>
+          <Button className="mt-3 w-full" variant="soft" icon={ShieldCheck} onClick={() => navigate('/login')}>
+            Create account or log in
+          </Button>
+        </section>
+      ) : acceptedInvites ? (
+        <section className="mt-4 rounded-lg border border-line bg-white p-4 shadow-sm">
+          <p className="text-sm font-semibold text-ink">{acceptedInvites} confirmed offline plan{acceptedInvites === 1 ? '' : 's'}</p>
+          <p className="mt-1 text-sm leading-6 text-muted">Open friends to see the latest accepted meetups.</p>
+        </section>
+      ) : null}
 
     </>
   );
@@ -1896,7 +1984,7 @@ function TimerPage({ navigate, draft, setDraft, settings, startSession, session 
     : lockDurations.includes(settings.defaultLock)
       ? settings.defaultLock
       : 30;
-  const [timer, setTimer] = useState(draft.timerMinutes || settings.defaultTimer);
+  const [timer, setTimer] = useState(Math.min(maxUsageMinutes, draft.timerMinutes || settings.defaultTimer));
   const [lock, setLock] = useState(defaultLock);
   const [timerCustom, setTimerCustom] = useState(false);
 
@@ -1948,7 +2036,7 @@ function TimerPage({ navigate, draft, setDraft, settings, startSession, session 
           </ChoiceButton>
         </div>
         {timerCustom ? (
-          <NumberField label="Minutes" value={timer} min={1} max={90} onChange={setTimer} />
+          <NumberField label="Minutes" value={timer} min={1} max={maxUsageMinutes} onChange={setTimer} />
         ) : null}
       </section>
 
@@ -1994,6 +2082,15 @@ function ChoiceButton({ selected, children, onClick }) {
 }
 
 function NumberField({ label, value, min, max, onChange }) {
+  const updateValue = (rawValue) => {
+    const numericValue = Number(rawValue);
+    if (Number.isNaN(numericValue)) {
+      onChange(min);
+      return;
+    }
+    onChange(Math.max(min, Math.min(max, numericValue)));
+  };
+
   return (
     <label className="mt-4 block">
       <span className="text-sm font-medium text-muted">{label}</span>
@@ -2003,7 +2100,7 @@ function NumberField({ label, value, min, max, onChange }) {
         min={min}
         max={max}
         value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
+        onChange={(event) => updateValue(event.target.value)}
       />
     </label>
   );
@@ -2054,7 +2151,7 @@ function ActiveTimerPage({ navigate, session, setSession, now, onSessionLock }) 
             <div className="rounded-lg bg-soft p-3 text-left">
               <p className="text-sm font-semibold text-ink">Ready to continue in {app.name}?</p>
               <p className="mt-1 text-xs leading-5 text-muted">
-                Use the return Shortcut so iPhone does not immediately send you back to LoopOut.
+                Use the return Shortcut only after you have written the purpose and started this timer.
               </p>
               <Button
                 className="mt-3 w-full"
@@ -2093,13 +2190,29 @@ function LockedPage({ navigate, session, now }) {
           <div className="grid h-14 w-14 place-items-center rounded-full bg-white/12">
             <LockKeyhole className="h-6 w-6" />
           </div>
-          <span className="rounded-full bg-white/12 px-3 py-1 text-xs font-semibold">Simulated lock</span>
+          <span className="rounded-full bg-white/12 px-3 py-1 text-xs font-semibold">Protected break</span>
         </div>
         <h1 className="mt-8 text-3xl font-semibold">Time's up. {app.name} is locked.</h1>
-        <p className="mt-3 text-white/75">Take {session.lockDurationMinutes} minutes away from the loop.</p>
+        <p className="mt-3 text-white/75">Take {session.lockDurationMinutes} minutes away from the loop and do something physical.</p>
         <div className="mt-8 rounded-lg bg-white/10 p-4">
           <p className="text-sm text-white/70">Lock countdown</p>
           <p className="mt-1 text-5xl font-semibold tabular-nums">{formatTimer(remaining)}</p>
+        </div>
+      </section>
+
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-ink">Use the break well</h2>
+        <div className="mt-3 grid gap-2">
+          {[
+            ['Move', 'Stand up, walk or get water.'],
+            ['Meet', 'See which friends are also offline.'],
+            ['Reset', 'Keep the app closed until the countdown ends.'],
+          ].map(([title, text]) => (
+            <div className="rounded-lg bg-canvas p-3" key={title}>
+              <p className="text-sm font-semibold text-ink">{title}</p>
+              <p className="mt-1 text-sm text-muted">{text}</p>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -2281,7 +2394,7 @@ function FriendsPage({
             with accepted friends.
           </p>
           <Button className="mt-4 w-full" variant="soft" icon={Settings} onClick={() => navigate('/settings')}>
-            View launch setup
+            Open settings
           </Button>
         </section>
       ) : null}
@@ -2648,6 +2761,7 @@ function PlacesPage({ navigate, openInvite, places = lisbonPlaces, loading }) {
 
   const visiblePlaces =
     category === 'All' ? placesByDistance : placesByDistance.filter((place) => place.type === category);
+  const topPlace = visiblePlaces[0];
 
   const locationCopy = {
     idle: 'Preparing nearby places.',
@@ -2682,6 +2796,11 @@ function PlacesPage({ navigate, openInvite, places = lisbonPlaces, loading }) {
                 </button>
               ) : null}
             </div>
+            <p className="mt-2 text-sm leading-6 text-muted">
+              {topPlace
+                ? `${visiblePlaces.length} place${visiblePlaces.length === 1 ? '' : 's'} shown. ${topPlace.name} is first in this view.`
+                : 'No places match this filter yet.'}
+            </p>
           </div>
         </div>
       </div>
@@ -2701,12 +2820,24 @@ function PlacesPage({ navigate, openInvite, places = lisbonPlaces, loading }) {
         ))}
       </div>
       {loading ? <SkeletonStack /> : null}
-      <PhoneFreeMap places={visiblePlaces} userLocation={userLocation} />
-      <div className="space-y-3">
-        {visiblePlaces.map((place) => (
-          <PlaceCard place={place} key={place.id} onInvite={openInvite} />
-        ))}
-      </div>
+      {visiblePlaces.length ? (
+        <>
+          <PhoneFreeMap places={visiblePlaces} userLocation={userLocation} />
+          <div className="space-y-3">
+            {visiblePlaces.map((place) => (
+              <PlaceCard place={place} key={place.id} onInvite={openInvite} />
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="rounded-lg border border-line bg-white p-6 text-center shadow-sm">
+          <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-soft text-primary">
+            <MapPin className="h-6 w-6" />
+          </div>
+          <h2 className="mt-4 text-xl font-semibold text-ink">No places in this category yet.</h2>
+          <p className="mt-2 text-sm leading-6 text-muted">Choose another category or add more places in Supabase later.</p>
+        </div>
+      )}
     </>
   );
 }
@@ -2728,9 +2859,12 @@ function ProgressPage({ navigate, session, invites, stats, screenTimeLogs = [], 
         <p className="mt-2 text-sm leading-6 text-muted">
           Based on sessions started, timers completed, lock periods, purposes and offline invites inside LoopOut.
         </p>
-        <p className="mt-2 text-sm leading-6 text-muted">
-          iPhone Screen Time is not read automatically by this PWA.
-        </p>
+        <div className="mt-4 rounded-lg bg-canvas p-3">
+          <p className="text-sm font-semibold text-ink">Data source</p>
+          <p className="mt-1 text-sm leading-6 text-muted">
+            LoopOut activity is tracked automatically. iPhone Screen Time can be added manually for comparison.
+          </p>
+        </div>
       </section>
 
       <div className="mt-4 grid grid-cols-2 gap-3">
@@ -2833,6 +2967,14 @@ function ScreenTimeImportPage({ navigate, logs = [], onSave, saving, isRemote })
     event.preventDefault();
     setMessage('');
     setError('');
+    if (!form.date) {
+      setError('Choose a date first.');
+      return;
+    }
+    if (Number(form.socialMediaMinutes) > Number(form.totalScreenTimeMinutes)) {
+      setError('Social media time cannot be higher than total Screen Time.');
+      return;
+    }
     try {
       await onSave(form);
       setMessage('Screen Time log saved.');
@@ -3031,7 +3173,7 @@ function SettingsPage({
         <SelectRow
           label="Default lock duration"
           value={settings.defaultLock}
-          options={[15, 30, 45, 60]}
+          options={[30, 45, 60]}
           suffix="minutes"
           onChange={(value) => setSettings({ ...settings, defaultLock: Number(value) })}
         />
@@ -3117,8 +3259,8 @@ function SettingsPage({
       </SettingsGroup>
 
       <p className="rounded-lg bg-white p-4 text-sm leading-6 text-muted shadow-sm">
-        LoopOut currently simulates app locking. Connect it with iPhone Shortcuts to create a pause before opening
-        distracting apps. Native app blocking can be added in a future version.
+        LoopOut is a PWA. iPhone Shortcuts creates the app-opening pause, while LoopOut manages the purpose, timer,
+        break window, friends and places. Native app blocking can be added in a future iOS app.
       </p>
     </>
   );
@@ -3183,6 +3325,7 @@ function SetupPage({ navigate }) {
   const [copied, setCopied] = useState('');
   const loopoutUrl = `${window.location.origin}/session/select-app`;
   const shortcutApps = appOptions.filter((app) => !['custom', 'games'].includes(app.id));
+  const bypassExamples = shortcutApps.slice(0, 5);
 
   const copyUrl = async (value = loopoutUrl, copiedKey = 'default') => {
     try {
@@ -3239,29 +3382,38 @@ function SetupPage({ navigate }) {
         <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
           <h2 className="font-semibold text-ink">Avoid the Shortcut loop</h2>
           <p className="mt-2 text-sm leading-6 text-muted">
-            iPhone automations run every time the app opens. Use a one-time bypass file so returning to TikTok from
-            LoopOut does not immediately send you back to LoopOut again.
+            iPhone automations run every time an app opens. Use one bypass file per app so returning from LoopOut does
+            not immediately send you back to LoopOut again.
           </p>
+          <div className="mt-4 grid gap-2">
+            {bypassExamples.map((app) => (
+              <div className="rounded-lg bg-soft p-3" key={app.id}>
+                <p className="text-sm font-semibold text-ink">{app.name}</p>
+                <p className="mt-1 break-all text-xs leading-5 text-muted">File: LoopOutAllow-{app.id}.txt</p>
+                <p className="break-all text-xs leading-5 text-muted">Return Shortcut: {app.returnShortcut}</p>
+              </div>
+            ))}
+          </div>
           <div className="mt-4 space-y-3">
             <div className="rounded-lg bg-canvas p-3">
               <p className="text-sm font-semibold text-ink">1. App automation</p>
               <p className="mt-1 text-sm leading-6 text-muted">
-                Before opening LoopOut, get <span className="font-semibold text-ink">LoopOutAllow-tiktok.txt</span> with
-                "error if not found" turned off. If the file exists, delete it and stop the automation.
+                Before opening LoopOut, get the matching <span className="font-semibold text-ink">LoopOutAllow-[app].txt</span> file
+                with "error if not found" turned off. If the file exists, delete it and stop the automation.
               </p>
             </div>
             <div className="rounded-lg bg-canvas p-3">
               <p className="text-sm font-semibold text-ink">2. Return Shortcut</p>
               <p className="mt-1 text-sm leading-6 text-muted">
-                Create <span className="font-semibold text-ink">LoopOut Return TikTok</span>: save a small text file called
-                LoopOutAllow-tiktok.txt, then open TikTok.
+                Create the matching <span className="font-semibold text-ink">LoopOut Return [App]</span> Shortcut: save a small
+                text file called LoopOutAllow-[app].txt, then open that app.
               </p>
             </div>
             <div className="rounded-lg bg-canvas p-3">
               <p className="text-sm font-semibold text-ink">3. LoopOut button</p>
               <p className="mt-1 text-sm leading-6 text-muted">
-                After the timer starts, tap Return to TikTok. The app automation consumes that one-time bypass and lets
-                TikTok open.
+                After the timer starts, tap Return to the app. The app automation consumes that one-time bypass and lets
+                the original app open.
               </p>
             </div>
           </div>
@@ -3553,7 +3705,7 @@ export default function App() {
       ...nextDraft,
       appName: app.name,
       purpose: nextDraft.purpose.trim(),
-      timerMinutes: Number(nextDraft.timerMinutes),
+      timerMinutes: Math.min(maxUsageMinutes, Math.max(1, Number(nextDraft.timerMinutes))),
       lockDurationMinutes: Number(nextDraft.lockDurationMinutes),
     };
 

@@ -1,9 +1,13 @@
-const CACHE_NAME = 'loopout-v5';
+const CACHE_NAME = 'loopout-v6';
 const APP_SHELL = [
   '/',
   '/dashboard',
   '/login',
   '/session/select-app',
+  '/session/purpose',
+  '/session/timer',
+  '/session/active',
+  '/session/locked',
   '/friends',
   '/places',
   '/progress',

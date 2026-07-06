@@ -1,6 +1,6 @@
 # LoopOut
 
-LoopOut is a mobile-first PWA for intentional phone use. It helps a user pause before opening distracting apps, write a purpose, set a timer, enter a simulated lock period, see accepted friends who are offline, and find phone-free places in Lisbon.
+LoopOut is a mobile-first PWA for intentional phone use. It helps a user pause before opening distracting apps, write a purpose, set a timer, enter a protected break period, see accepted friends who are offline, and find phone-free places in Lisbon.
 
 ## Production Setup
 

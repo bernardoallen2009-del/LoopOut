@@ -1,11 +1,13 @@
+@import './styles/tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
   color-scheme: light;
-  background: #f7fbff;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--loopout-bg);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", Inter, system-ui, sans-serif;
   text-rendering: geometricPrecision;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -17,7 +19,8 @@
 
 html {
   min-height: 100%;
-  background: #f7fbff;
+  background: var(--loopout-bg);
+  scroll-behavior: smooth;
 }
 
 body {
@@ -25,7 +28,11 @@ body {
   min-height: 100vh;
   margin: 0;
   overflow-x: hidden;
-  background: #f7fbff;
+  background:
+    radial-gradient(circle at 50% -10%, rgba(195, 196, 191, 0.42), transparent 34rem),
+    radial-gradient(circle at 10% 18%, rgba(255, 255, 255, 0.92), transparent 18rem),
+    var(--loopout-bg);
+  color: var(--loopout-text);
 }
 
 button,
@@ -39,8 +46,25 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 
+button,
+a,
+input,
+textarea,
+select {
+  transition: border-color 200ms ease, background 200ms ease, box-shadow 200ms ease, transform 180ms ease, color 200ms ease;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid rgba(110, 168, 254, 0.86);
+  outline-offset: 3px;
+}
+
 ::selection {
-  background: rgba(0, 122, 255, 0.16);
+  background: rgba(195, 196, 191, 0.42);
 }
 
 .brand-symbol {
@@ -58,26 +82,91 @@ button {
   transform: translate(-50%, -37%);
 }
 
+.bg-canvas {
+  background-color: var(--loopout-bg);
+}
+
+.bg-white {
+  background-color: rgba(255, 255, 255, 0.68);
+}
+
+.bg-soft {
+  background-color: rgba(195, 196, 191, 0.2);
+}
+
+.text-primary,
+.text-deep {
+  color: var(--loopout-dark);
+}
+
+.text-muted {
+  color: var(--loopout-muted);
+}
+
+.border-line {
+  border-color: var(--loopout-border);
+}
+
+.shadow-sm,
+.shadow-soft,
+.shadow-lift {
+  box-shadow: var(--loopout-shadow);
+}
+
+.rounded-lg.border.border-line.bg-white,
+.rounded-lg.border.border-line.bg-white\/80,
+.rounded-lg.border.border-line.bg-white\/70,
+.rounded-lg.border.border-primary\/20.bg-white,
+section.rounded-lg.border.border-line.bg-white,
+.rounded-lg.bg-white {
+  border-radius: var(--loopout-radius-card);
+  background: var(--loopout-card-gradient);
+  border-color: rgba(255, 255, 255, 0.62);
+  box-shadow: var(--loopout-shadow);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+}
+
+.rounded-lg.bg-canvas,
+.rounded-lg.bg-soft {
+  border-radius: 22px;
+}
+
+.rounded-full.bg-soft,
+.rounded-full.bg-white {
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+}
+
+input,
+textarea,
+select {
+  border-color: var(--loopout-border) !important;
+  background: rgba(255, 255, 255, 0.48) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
+  backdrop-filter: blur(18px) saturate(170%);
+}
+
 .leaflet-container {
   min-height: 100%;
   font-family: inherit;
 }
 
 .leaflet-popup-content-wrapper {
-  border-radius: 8px;
-  box-shadow: 0 14px 36px rgba(11, 18, 32, 0.14);
+  border-radius: 18px;
+  box-shadow: var(--loopout-lift-shadow);
 }
 
 .leaflet-popup-content {
   margin: 10px 12px;
-  color: #0b1220;
+  color: var(--loopout-text);
   font-size: 13px;
   line-height: 1.45;
 }
 
 .leaflet-popup-content span,
 .leaflet-popup-content small {
-  color: #667085;
+  color: var(--loopout-muted);
 }
 
 .loopout-map-pin {
@@ -92,8 +181,8 @@ button {
   height: 28px;
   border: 3px solid #ffffff;
   border-radius: 999px 999px 999px 4px;
-  background: #007aff;
-  box-shadow: 0 10px 24px rgba(0, 122, 255, 0.34);
+  background: var(--loopout-dark);
+  box-shadow: 0 10px 24px rgba(47, 49, 45, 0.24);
   transform: translateX(-50%) rotate(-45deg);
 }
 
@@ -108,8 +197,22 @@ button {
 .hero-stage {
   position: relative;
   overflow: hidden;
-  border-bottom: 1px solid rgba(216, 232, 248, 0.9);
-  background: #f7fbff;
+  border-bottom: 1px solid var(--loopout-border);
+  background:
+    radial-gradient(circle at 72% 20%, rgba(195, 196, 191, 0.42), transparent 22rem),
+    linear-gradient(180deg, rgba(247, 247, 244, 0.96), rgba(247, 247, 244, 0.78));
+}
+
+.hero-stage::before {
+  position: absolute;
+  inset: 9rem auto auto 50%;
+  width: min(62vw, 760px);
+  height: min(62vw, 760px);
+  content: "";
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(195, 196, 191, 0.34), transparent 62%);
+  filter: blur(6px);
+  transform: translateX(-10%);
 }
 
 .hero-phone {
@@ -124,10 +227,10 @@ button {
   width: 100%;
   aspect-ratio: 0.49;
   padding: 14px;
-  border: 1px solid rgba(216, 232, 248, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 46px;
-  background: #ffffff;
-  box-shadow: 0 30px 80px rgba(10, 61, 145, 0.18);
+  background: linear-gradient(145deg, #ffffff, #d9dad5 44%, #f8f8f5);
+  box-shadow: 0 34px 90px rgba(0, 0, 0, 0.16);
 }
 
 .phone-island {
@@ -138,7 +241,7 @@ button {
   width: 92px;
   height: 27px;
   border-radius: 999px;
-  background: #0b1220;
+  background: #111111;
   transform: translateX(-50%);
 }
 
@@ -147,10 +250,38 @@ button {
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  border: 1px solid rgba(216, 232, 248, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 34px;
-  background: #f7fbff;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(195, 196, 191, 0.36), transparent 14rem),
+    #f7f7f4;
   padding: 56px 16px 16px;
+}
+
+.animate-in {
+  animation: loopout-fade-up 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes loopout-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 @media (min-width: 768px) {

@@ -3,7 +3,6 @@ import {
   AlertCircle,
   ArrowRight,
   BadgePercent,
-  BarChart3,
   Bell,
   BookOpen,
   Building2,
@@ -685,11 +684,11 @@ function Button({ children, variant = 'primary', className, icon: Icon, disabled
   return (
     <button
       className={classNames(
-        'inline-flex min-h-11 items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45',
-        variant === 'primary' && 'bg-primary text-white shadow-[0_10px_24px_rgba(0,122,255,0.24)]',
-        variant === 'secondary' && 'border border-line bg-white text-ink shadow-sm',
-        variant === 'ghost' && 'bg-transparent text-deep',
-        variant === 'soft' && 'bg-soft text-deep',
+        'ios-pill inline-flex min-h-12 items-center justify-center gap-2 px-5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-45',
+        variant === 'primary' && 'border border-white/10 bg-[#111111]/[0.92] text-white shadow-[0_14px_30px_rgba(0,0,0,0.16)]',
+        variant === 'secondary' && 'border border-white/70 bg-white/45 text-ink shadow-sm backdrop-blur-2xl',
+        variant === 'ghost' && 'border border-transparent bg-transparent text-deep shadow-none',
+        variant === 'soft' && 'border border-line bg-loopoutStone/20 text-ink shadow-sm',
         className
       )}
       disabled={disabled}
@@ -720,12 +719,12 @@ function BrandMark({ compact = false }) {
 
 function PageHeader({ title, subtitle, backTo, navigate, action }) {
   return (
-    <header className="sticky top-0 z-30 -mx-4 mb-4 border-b border-line/70 bg-canvas/90 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-xl">
+    <header className="sticky top-0 z-30 -mx-4 mb-4 border-b border-white/50 bg-canvas/70 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-2xl">
       <div className="mx-auto flex max-w-md items-center gap-3">
         {backTo ? (
           <button
             type="button"
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-line bg-white text-deep"
+            className="ios-pill grid h-11 w-11 shrink-0 place-items-center border border-white/70 bg-white/50 text-deep"
             onClick={() => navigate(backTo)}
             aria-label="Go back"
           >
@@ -744,8 +743,8 @@ function PageHeader({ title, subtitle, backTo, navigate, action }) {
 
 function StatCard({ label, value, icon: Icon }) {
   return (
-    <div className="rounded-lg border border-line bg-white p-4 shadow-sm">
-      <div className="mb-3 grid h-9 w-9 place-items-center rounded-full bg-soft text-primary">
+    <div className="ios-card p-4">
+      <div className="mb-3 grid h-10 w-10 place-items-center rounded-full bg-white/54 text-primary shadow-sm">
         <Icon className="h-4 w-4" />
       </div>
       <p className="text-2xl font-semibold text-ink">{value}</p>
@@ -759,12 +758,12 @@ function ProgressRing({ progress, label }) {
   const degrees = Math.round(safeProgress * 360);
 
   return (
-    <div className="relative grid h-56 w-56 place-items-center rounded-full bg-white shadow-soft">
+    <div className="relative grid h-56 w-56 place-items-center rounded-full border border-white/70 bg-white/55 shadow-soft backdrop-blur-2xl">
       <div
         className="absolute inset-4 rounded-full"
-        style={{ background: `conic-gradient(#007AFF ${degrees}deg, #EAF4FF ${degrees}deg)` }}
+        style={{ background: `conic-gradient(#2F312D ${degrees}deg, rgba(195,196,191,0.28) ${degrees}deg)` }}
       />
-      <div className="absolute inset-8 rounded-full bg-white" />
+      <div className="absolute inset-8 rounded-full bg-white/80 backdrop-blur-xl" />
       <div className="relative text-center">
         <p className="text-5xl font-semibold tabular-nums text-ink">{label}</p>
         <p className="mt-2 text-sm text-muted">Use this time intentionally.</p>
@@ -796,7 +795,7 @@ function LoopOutQrCode({ value }) {
   });
 
   return (
-    <div className="mx-auto grid h-56 w-56 grid-cols-[repeat(21,minmax(0,1fr))] gap-[2px] rounded-lg border border-line bg-white p-3 shadow-sm" aria-label={`LoopOut Pass code ${formatPublicCode(value)}`}>
+    <div className="mx-auto grid h-56 w-56 grid-cols-[repeat(21,minmax(0,1fr))] gap-[2px] rounded-[28px] border border-white/70 bg-white/65 p-4 shadow-soft backdrop-blur-2xl" aria-label={`LoopOut Pass code ${formatPublicCode(value)}`}>
       {cells.map((cell) => (
         <span
           className={classNames('aspect-square rounded-[2px]', cell.active ? 'bg-ink' : 'bg-transparent')}
@@ -840,7 +839,7 @@ function LoopOutPassCard({ pass, session, now, onFindPartners, onInviteFriends, 
   const expiresIn = pass ? Math.max(0, dateMs(pass.expiresAt) - now) : 0;
 
   return (
-    <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
+    <section className="ios-card p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">LoopOut Pass</p>
@@ -854,7 +853,7 @@ function LoopOutPassCard({ pass, session, now, onFindPartners, onInviteFriends, 
         <PassStatusPill status={status} />
       </div>
 
-      <div className="mt-4 rounded-lg bg-canvas p-3">
+      <div className="mt-4 rounded-[24px] bg-loopoutStone/15 p-3">
         <div className="flex items-start gap-3">
           {app ? <AppLogo app={app} className="h-10 w-10 rounded-[10px]" /> : null}
           <div className="min-w-0 flex-1">
@@ -873,7 +872,7 @@ function LoopOutPassCard({ pass, session, now, onFindPartners, onInviteFriends, 
             <p className="mt-1 text-center text-xs text-muted">Staff can scan this card or enter the code manually.</p>
           </div>
 
-          <div className="mt-5 grid gap-2 rounded-lg bg-soft p-3">
+          <div className="mt-5 grid gap-2 rounded-[24px] bg-loopoutStone/18 p-3">
             <DetailRow label="Partner" value={partner?.name || pass.rewardSnapshot.partnerName} />
             <DetailRow label="Reward" value={pass.rewardSnapshot.summary || getRewardSummary(campaign, pass.groupSize)} />
             <DetailRow label="Expires in" value={formatShort(expiresIn)} />
@@ -881,7 +880,7 @@ function LoopOutPassCard({ pass, session, now, onFindPartners, onInviteFriends, 
           </div>
         </>
       ) : (
-        <div className="mt-5 rounded-lg bg-soft p-3 text-sm leading-6 text-deep">
+        <div className="mt-5 rounded-[24px] bg-loopoutStone/18 p-3 text-sm leading-6 text-deep">
           Sign in and finish a timer to generate a time-limited reward pass.
         </div>
       )}
@@ -898,7 +897,7 @@ function LoopOutPassCard({ pass, session, now, onFindPartners, onInviteFriends, 
         </Button>
       </div>
 
-      <p className="mt-4 rounded-lg bg-canvas p-3 text-xs leading-5 text-muted">
+      <p className="mt-4 rounded-[22px] bg-white/38 p-3 text-xs leading-5 text-muted">
         LoopOut never shares your private phone usage with partners. Partners only see whether your pass is valid, the
         reward, lock status and group size.
       </p>
@@ -1130,8 +1129,8 @@ function AppCard({ app, selected, onClick }) {
       type="button"
       onClick={onClick}
       className={classNames(
-        'flex min-h-24 w-full items-center gap-4 rounded-lg border bg-white p-4 text-left shadow-sm transition active:scale-[0.99]',
-        selected ? 'border-primary ring-4 ring-primary/10' : 'border-line'
+        'ios-card flex min-h-24 w-full items-center gap-4 p-4 text-left transition active:scale-[0.99]',
+        selected ? 'border-[#2F312D] ring-4 ring-activeBlue/15' : 'border-white/60'
       )}
     >
       <AppLogo app={app} />
@@ -1142,7 +1141,7 @@ function AppCard({ app, selected, onClick }) {
       <div
         className={classNames(
           'grid h-7 w-7 place-items-center rounded-full border',
-          selected ? 'border-primary bg-primary text-white' : 'border-line text-transparent'
+          selected ? 'border-[#2F312D] bg-[#2F312D] text-white' : 'border-line text-transparent'
         )}
       >
         <CheckCircle2 className="h-4 w-4" />
@@ -1158,9 +1157,9 @@ function FriendCard({ friend, onInvite, privacyOn, shareArea = true }) {
   const visibleApp = privacyOn ? friend.lockedApp : 'App hidden';
 
   return (
-    <div className="rounded-lg border border-line bg-white p-4 shadow-sm">
+    <div className="ios-card p-4">
       <div className="flex items-start gap-3">
-        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-soft font-semibold text-deep">
+        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white/55 font-semibold text-deep shadow-sm">
           {friend.avatar}
         </div>
         <div className="min-w-0 flex-1">
@@ -1181,7 +1180,7 @@ function FriendCard({ friend, onInvite, privacyOn, shareArea = true }) {
           </div>
         </div>
       </div>
-      <div className="mt-4 rounded-lg bg-canvas p-3">
+      <div className="mt-4 rounded-[22px] bg-loopoutStone/15 p-3">
         <p className="text-sm font-semibold text-ink">
           {friend.available ? 'Good moment to meet' : 'Plan for later'}
         </p>
@@ -1209,7 +1208,7 @@ function PlaceCard({ place, onInvite, navigate }) {
   const rewardSummary = campaign ? getRewardSummary(campaign, 1) : null;
 
   return (
-    <div className="rounded-lg border border-line bg-white p-4 shadow-sm">
+    <div className="ios-card p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1227,12 +1226,12 @@ function PlaceCard({ place, onInvite, navigate }) {
             </p>
           ) : null}
         </div>
-        <div className="grid h-11 w-11 place-items-center rounded-full bg-soft text-primary">
+        <div className="grid h-11 w-11 place-items-center rounded-full bg-white/55 text-primary shadow-sm">
           <Icon className="h-5 w-5" />
         </div>
       </div>
       <p className="mt-4 text-sm leading-6 text-muted">{place.description}</p>
-      <div className="mt-4 rounded-lg bg-canvas p-3">
+      <div className="mt-4 rounded-[22px] bg-loopoutStone/15 p-3">
         <p className="text-sm font-medium text-ink">{place.activity}</p>
         <p className="mt-1 text-sm text-muted">{place.suggestion}</p>
       </div>
@@ -1376,7 +1375,7 @@ function PhoneFreeMap({ places, userLocation }) {
     if (userLocation) {
       L.circleMarker([userLocation.lat, userLocation.lng], {
         radius: 8,
-        fillColor: '#007AFF',
+        fillColor: '#6EA8FE',
         fillOpacity: 1,
         color: '#fff',
         opacity: 1,
@@ -1626,20 +1625,37 @@ function HeroPhone() {
           <div className="mt-4 rounded-[22px] bg-deep p-4 text-white">
             <div className="flex items-center gap-2">
               <LockKeyhole className="h-4 w-4" />
-              <p className="text-sm font-semibold">10:00 intentional minutes</p>
+              <p className="text-sm font-semibold">Your break has started</p>
             </div>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/15">
               <div className="h-full w-2/3 rounded-full bg-white" />
             </div>
           </div>
-          <div className="mt-auto rounded-[18px] bg-white p-3 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="grid h-9 w-9 place-items-center rounded-full bg-soft text-primary">
-                <MapPin className="h-4 w-4" />
+          <div className="mt-4 rounded-[18px] bg-white/80 p-3 shadow-sm">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">LoopOut Pass</p>
+              <span className="rounded-full bg-[#E8F8EF] px-2 py-0.5 text-[10px] font-semibold text-[#137A3D]">Active</span>
+            </div>
+            <div className="mt-3 flex items-center gap-3">
+              <div className="grid h-12 w-12 grid-cols-4 gap-[2px] rounded-[10px] bg-white p-2">
+                {Array.from({ length: 16 }).map((_, index) => (
+                  <span className={classNames('rounded-[1px]', index % 3 === 0 || index === 5 ? 'bg-ink' : 'bg-transparent')} key={index} />
+                ))}
               </div>
               <div>
-                <p className="text-sm font-semibold text-ink">Gulbenkian Gardens</p>
-                <p className="text-xs text-muted">1.2 km away | phone-free walk</p>
+                <p className="text-sm font-semibold text-ink">15% off drinks</p>
+                <p className="text-xs text-muted">Offline Cafe Saldanha</p>
+              </div>
+            </div>
+          </div>
+          <div className="mt-auto rounded-[18px] bg-white/80 p-3 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="grid h-9 w-9 place-items-center rounded-full bg-soft text-primary">
+                <Users className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-ink">2 friends offline</p>
+                <p className="text-xs text-muted">Meet without the scroll</p>
               </div>
             </div>
           </div>
@@ -1650,47 +1666,70 @@ function HeroPhone() {
 }
 
 function Landing({ navigate }) {
+  const marketingNav = [
+    ['Product', 'product'],
+    ['How it works', 'how'],
+    ['Places', 'places'],
+    ['Partners', 'partners'],
+    ['Pricing', 'pricing'],
+  ];
+  const scrollToSection = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
   return (
     <div className="min-h-screen bg-canvas text-ink">
-      <nav className="fixed inset-x-0 top-0 z-40 border-b border-line/70 bg-canvas/85 px-4 py-3 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-6xl items-center justify-between">
+      <nav className="fixed inset-x-0 top-0 z-40 px-4 py-3">
+        <div className="mx-auto flex max-w-6xl items-center justify-between rounded-full border border-white/70 bg-white/48 px-3 py-2 shadow-sm backdrop-blur-2xl">
           <BrandMark />
-          <Button variant="secondary" className="hidden sm:inline-flex" onClick={() => navigate('/setup-iphone')}>
-            Setup
-          </Button>
+          <div className="hidden items-center gap-1 lg:flex">
+            {marketingNav.map(([label, id]) => (
+              <button
+                type="button"
+                className="rounded-full px-4 py-2 text-sm font-semibold text-muted transition hover:bg-white/55 hover:text-ink"
+                key={id}
+                onClick={() => (id === 'partners' ? navigate('/partners') : scrollToSection(id))}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" className="hidden px-4 sm:inline-flex" onClick={() => navigate('/login')}>
+              Login
+            </Button>
+            <Button className="px-4" onClick={() => navigate('/onboarding')}>
+              Start LoopOut
+            </Button>
+          </div>
         </div>
       </nav>
 
       <section className="hero-stage">
         <div className="mx-auto grid min-h-[88vh] max-w-6xl items-center gap-10 px-4 pb-14 pt-28 lg:min-h-[92vh] lg:grid-cols-[minmax(0,1fr)_380px] lg:pt-24">
-          <div className="max-w-3xl text-center lg:text-left">
-            <p className="mx-auto inline-flex rounded-full border border-line bg-white px-4 py-2 text-sm font-semibold text-deep shadow-sm lg:mx-0">
-              Digital wellbeing for real-life connection
+          <div className="animate-in max-w-3xl text-center lg:text-left">
+            <p className="mx-auto inline-flex rounded-full border border-white/70 bg-white/50 px-4 py-2 text-sm font-semibold text-deep shadow-sm backdrop-blur-xl lg:mx-0">
+              iOS-inspired digital wellbeing
             </p>
-            <h1 className="mt-5 text-balance text-6xl font-semibold leading-[0.98] tracking-normal text-ink sm:text-7xl lg:text-8xl">
-              LoopOut
+            <h1 className="mt-5 text-balance text-5xl font-semibold leading-[1.02] tracking-normal text-ink sm:text-7xl lg:text-8xl">
+              Break the scroll loop.
             </h1>
-            <p className="mt-5 max-w-2xl text-pretty text-2xl font-semibold leading-tight text-ink lg:text-3xl">
-              Break the scroll loop before it starts.
-            </p>
             <p className="mt-5 max-w-2xl text-pretty text-lg leading-8 text-muted">
-              Choose the app, write the reason, set a timer, then turn the end of screen time into a real offline plan.
+              LoopOut helps you use distracting apps with purpose, set a timer, and turn screen time into real-life connection.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row lg:justify-start">
               <Button icon={Play} onClick={() => navigate('/onboarding')}>
                 Start LoopOut
               </Button>
-              <Button variant="secondary" icon={Compass} onClick={() => navigate('/setup-iphone')}>
-                See setup
+              <Button variant="secondary" icon={Compass} onClick={() => scrollToSection('how')}>
+                See how it works
               </Button>
             </div>
             <div className="mt-8 grid gap-3 text-left sm:grid-cols-3">
               {[
-                ['Purpose first', 'Pause before opening distracting apps.'],
-                ['Clear limits', 'Preset timers and lock windows.'],
-                ['Nearby plans', 'Meet friends in phone-free places.'],
+                ['Purpose first', 'Write why before you open the app.'],
+                ['Timer built in', 'Use the app with a clear stopping point.'],
+                ['Real-world reward', 'Meet friends and earn LoopOut Pass rewards.'],
               ].map(([title, text]) => (
-                <div className="rounded-lg border border-line bg-white/80 p-4 shadow-sm" key={title}>
+                <div className="ios-card p-4" key={title}>
                   <p className="text-sm font-semibold text-ink">{title}</p>
                   <p className="mt-1 text-sm leading-6 text-muted">{text}</p>
                 </div>
@@ -1704,77 +1743,69 @@ function Landing({ navigate }) {
       </section>
 
       <main className="mx-auto max-w-6xl px-4 pb-20 pt-8">
-        <section className="grid gap-4 py-10 md:grid-cols-3">
-          <InfoPanel
-            eyebrow="Pause"
-            title="Open apps with intention instead of autopilot."
-            body="LoopOut asks for a purpose before the scroll begins."
-            icon={Sparkles}
-          />
-          <InfoPanel
-            eyebrow="Limit"
-            title="Use preset timers and finish with a real stopping point."
-            body="Preset defaults keep the flow quick, with a clear end before the break starts."
-            icon={Timer}
-          />
-          <InfoPanel
-            eyebrow="Reconnect"
-            title="Find nearby phone-free places when the timer ends."
-            body="Turn protected time into walks, study sessions and offline invites."
-            icon={MapPin}
-          />
+        <section id="product" className="grid gap-4 py-10 md:grid-cols-3">
+          {[
+            ['Focus', 'Purpose before autopilot.', Sparkles],
+            ['Sleep', 'Clear limits before late-night scrolling.', Timer],
+            ['Connection', 'Meet without the scroll.', Users],
+          ].map(([title, text, Icon]) => (
+            <InfoPanel eyebrow="The problem" title={title} body={text} icon={Icon} key={title} />
+          ))}
         </section>
 
-        <section className="grid gap-4 py-10 lg:grid-cols-[0.9fr_1.1fr]">
+        <section id="how" className="grid gap-4 py-10 lg:grid-cols-[0.9fr_1.1fr]">
           <div>
-            <SectionTitle eyebrow="How it works" title="One clean flow from impulse to intention." />
+            <SectionTitle eyebrow="The solution" title="From impulse to real-world opportunity." />
             <p className="mt-3 max-w-md leading-7 text-muted">
-              LoopOut is built around the moment before you open a distracting app, not a complicated dashboard.
+              LoopOut turns the moment you stop scrolling into a calm path toward friends, places and rewards.
             </p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
             {[
-              ['1', 'Choose the app', 'Pick the social app you are about to open.'],
-              ['2', 'Name the purpose', 'Write one reason before continuing.'],
-              ['3', 'Set the limit', 'Choose a preset timer and lock duration.'],
-              ['4', 'Go offline', 'Use places and invites when the loop ends.'],
+              ['1', 'Write your purpose'],
+              ['2', 'Set a timer'],
+              ['3', 'Lock the app'],
+              ['4', 'See offline friends'],
+              ['5', 'Go to phone-free places'],
+              ['6', 'Earn LoopOut Pass rewards'],
             ].map(([step, title, text]) => (
-              <div className="rounded-lg border border-line bg-white p-4 shadow-sm" key={step}>
-                <span className="grid h-9 w-9 place-items-center rounded-full bg-soft text-sm font-semibold text-deep">
+              <div className="ios-card p-4" key={step}>
+                <span className="grid h-9 w-9 place-items-center rounded-full bg-white/55 text-sm font-semibold text-deep shadow-sm">
                   {step}
                 </span>
                 <p className="mt-4 font-semibold text-ink">{title}</p>
-                <p className="mt-1 text-sm leading-6 text-muted">{text}</p>
+                {text ? <p className="mt-1 text-sm leading-6 text-muted">{text}</p> : null}
               </div>
             ))}
           </div>
         </section>
 
-        <section className="grid gap-4 py-10 md:grid-cols-2">
+        <section id="places" className="grid gap-4 py-10 md:grid-cols-2">
           <InfoPanel
-            eyebrow="Built like an MVP"
-            title="Accounts, friends, places and privacy settings are ready for a real backend."
-            icon={Bell}
+            eyebrow="Phone-free places"
+            title="Discover calm places in Lisbon when the timer ends."
+            body="Gardens, libraries, cultural spaces and verified LoopOut partners appear when they are useful."
+            icon={MapPin}
           />
           <InfoPanel
-            eyebrow="Practical constraint"
-            title="A PWA-friendly flow that works with iPhone Shortcuts today."
-            body="Native blocking can come later; the current product focuses on the real habit loop."
-            icon={ShieldCheck}
+            eyebrow="LoopOut Pass"
+            title="Get rewarded for going offline."
+            body="Temporary QR passes unlock discounts and group rewards at verified partner cafes."
+            icon={WalletCards}
           />
         </section>
 
-        <section className="py-10">
-          <SectionTitle eyebrow="Why it's different" title="Purpose first, then connection." />
+        <section id="partners" className="py-10">
+          <SectionTitle eyebrow="Partner cafes" title="Bring young people offline and into your space." />
           <div className="mt-6 grid gap-4 md:grid-cols-4">
             {[
-              ['Purpose before screen time', Sparkles],
-              ['Timers instead of endless scrolling', Timer],
-              ['Social accountability', Users],
-              ['Phone-free places in Lisbon', MapPin],
+              ['QR scanner', QrCode],
+              ['Discount rewards', Gift],
+              ['Group visits', Users],
+              ['Impact metrics', TrendingUp],
             ].map(([label, Icon]) => (
-              <div className="rounded-lg border border-line bg-white p-4 shadow-sm" key={label}>
-                <div className="grid h-10 w-10 place-items-center rounded-full bg-soft text-primary">
+              <div className="ios-card p-4" key={label}>
+                <div className="grid h-10 w-10 place-items-center rounded-full bg-white/55 text-primary shadow-sm">
                   <Icon className="h-5 w-5" />
                 </div>
                 <p className="mt-4 font-semibold text-ink">{label}</p>
@@ -1783,12 +1814,12 @@ function Landing({ navigate }) {
           </div>
         </section>
 
-        <section className="rounded-lg bg-deep p-6 text-center text-white shadow-soft sm:p-10">
-          <h2 className="text-3xl font-semibold">Ready to use screen time on purpose?</h2>
-          <p className="mx-auto mt-3 max-w-xl text-white/70">
-            Start with one app, one purpose and one limit. The rest can become a habit.
+        <section id="pricing" className="ios-card p-6 text-center sm:p-10">
+          <h2 className="text-3xl font-semibold text-ink">Ready to turn screen time into real time?</h2>
+          <p className="mx-auto mt-3 max-w-xl text-muted">
+            Start with one app, one purpose and one timer. LoopOut keeps the rest calm.
           </p>
-          <Button variant="secondary" className="mt-6" icon={ArrowRight} onClick={() => navigate('/onboarding')}>
+          <Button className="mt-6" icon={ArrowRight} onClick={() => navigate('/onboarding')}>
             Start LoopOut
           </Button>
         </section>
@@ -1799,8 +1830,8 @@ function Landing({ navigate }) {
 
 function InfoPanel({ eyebrow, title, body, icon: Icon }) {
   return (
-    <div className="rounded-lg border border-line bg-white p-6 shadow-sm">
-      <div className="grid h-11 w-11 place-items-center rounded-full bg-soft text-primary">
+    <div className="ios-card p-6">
+      <div className="grid h-11 w-11 place-items-center rounded-full bg-white/55 text-primary shadow-sm">
         <Icon className="h-5 w-5" />
       </div>
       <p className="mt-5 text-sm font-semibold uppercase tracking-[0.12em] text-primary">{eyebrow}</p>
@@ -2021,7 +2052,7 @@ function Field({ label, value, onChange, type = 'text' }) {
     <label className="block">
       <span className="text-sm font-medium text-ink">{label}</span>
       <input
-        className="mt-2 min-h-12 w-full rounded-lg border border-line bg-white px-3 text-base text-ink outline-none transition focus:border-primary focus:ring-4 focus:ring-primary/10"
+        className="mt-2 min-h-[52px] w-full rounded-[22px] border border-line bg-white/45 px-4 text-base text-ink outline-none backdrop-blur-xl focus:border-activeBlue focus:ring-4 focus:ring-activeBlue/15"
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -2039,15 +2070,15 @@ function AppShell({ children, navigate, path, session }) {
     { label: 'Session', path: sessionRoute, match: '/session', icon: Timer },
     { label: 'Friends', path: '/friends', icon: Users },
     { label: 'Places', path: '/places', match: ['/places', '/rewards'], icon: MapPin },
-    { label: 'Progress', path: '/progress', icon: BarChart3 },
-    { label: 'Settings', path: '/settings', icon: Settings },
+    { label: 'Pass', path: '/pass', icon: WalletCards },
+    { label: 'Profile', path: '/settings', icon: CircleUserRound },
   ];
 
   return (
     <div className="min-h-screen bg-canvas text-ink">
       <main className="mx-auto max-w-md px-4 pb-28">{children}</main>
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white/92 pb-[calc(env(safe-area-inset-bottom)+8px)] pt-2 backdrop-blur-xl">
-        <div className="mx-auto grid max-w-md grid-cols-6 gap-1 px-2">
+      <nav className="fixed inset-x-0 bottom-0 z-40 px-3 pb-[calc(env(safe-area-inset-bottom)+10px)]">
+        <div className="mx-auto grid max-w-md grid-cols-6 gap-1 rounded-[28px] border border-white/70 bg-white/50 p-2 shadow-lift backdrop-blur-2xl">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = Array.isArray(item.match)
@@ -2059,8 +2090,8 @@ function AppShell({ children, navigate, path, session }) {
               <button
                 type="button"
                 className={classNames(
-                  'flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg text-[11px] font-medium transition',
-                  active ? 'bg-soft text-primary' : 'text-muted'
+                  'flex min-h-14 flex-col items-center justify-center gap-1 rounded-[20px] text-[11px] font-medium transition active:scale-[0.98]',
+                  active ? 'bg-loopoutStone/35 text-ink shadow-sm' : 'text-muted hover:bg-white/45'
                 )}
                 key={item.label}
                 onClick={() => navigate(item.path)}
@@ -2347,7 +2378,7 @@ function PurposePage({ navigate, draft, setDraft, session }) {
   return (
     <>
       <PageHeader
-        title={`Why are you opening ${app.name}?`}
+        title="Why are you opening this app?"
         subtitle="A short pause helps you stay in control."
         navigate={navigate}
         backTo="/session/select-app"
@@ -2383,8 +2414,8 @@ function PurposePage({ navigate, draft, setDraft, session }) {
         <label className="block">
           <span className="mt-5 block text-sm font-semibold text-ink">Write your purpose.</span>
           <textarea
-            className="mt-3 min-h-40 w-full resize-none rounded-lg border border-line bg-canvas px-4 py-4 text-xl font-medium leading-8 text-ink outline-none transition placeholder:text-muted/60 focus:border-primary focus:bg-white focus:ring-4 focus:ring-primary/10"
-            placeholder="Example: reply to one message, then stop."
+            className="mt-3 min-h-40 w-full resize-none rounded-[28px] border border-line bg-white/45 px-4 py-4 text-xl font-medium leading-8 text-ink outline-none backdrop-blur-xl placeholder:text-muted/60 focus:border-activeBlue focus:bg-white/65 focus:ring-4 focus:ring-activeBlue/15"
+            placeholder="Write your purpose..."
             value={purpose}
             onChange={(event) => setDraft({ ...draft, purpose: event.target.value })}
             autoFocus
@@ -2520,8 +2551,8 @@ function ChoiceButton({ selected, children, onClick }) {
     <button
       type="button"
       className={classNames(
-        'min-h-11 rounded-full border px-2 text-sm font-semibold transition',
-        selected ? 'border-primary bg-primary text-white' : 'border-line bg-white text-ink'
+        'ios-pill min-h-11 rounded-full border px-2 text-sm font-semibold',
+        selected ? 'border-[#2F312D] bg-[#2F312D] text-white shadow-[0_12px_26px_rgba(0,0,0,0.14)]' : 'border-white/70 bg-white/45 text-ink'
       )}
       onClick={onClick}
     >
@@ -2544,7 +2575,7 @@ function NumberField({ label, value, min, max, onChange }) {
     <label className="mt-4 block">
       <span className="text-sm font-medium text-muted">{label}</span>
       <input
-        className="mt-2 min-h-12 w-full rounded-lg border border-line bg-canvas px-3 text-base text-ink outline-none focus:border-primary"
+        className="mt-2 min-h-12 w-full rounded-[22px] border border-line bg-white/45 px-4 text-base text-ink outline-none focus:border-activeBlue focus:ring-4 focus:ring-activeBlue/15"
         type="number"
         min={min}
         max={max}
@@ -2634,17 +2665,17 @@ function LockedPage({ navigate, session, now, pass, onGeneratePass }) {
   return (
     <>
       <PageHeader title="Your break has started" subtitle="Meet without the scroll." navigate={navigate} backTo="/dashboard" />
-      <section className="rounded-lg bg-deep p-5 text-white shadow-soft">
+      <section className="ios-card bg-loopoutStone/25 p-5 text-ink">
         <div className="flex items-center justify-between">
-          <div className="grid h-14 w-14 place-items-center rounded-full bg-white/12">
+          <div className="grid h-14 w-14 place-items-center rounded-full bg-white/55 shadow-sm">
             <LockKeyhole className="h-6 w-6" />
           </div>
-          <span className="rounded-full bg-white/12 px-3 py-1 text-xs font-semibold">Protected break</span>
+          <span className="rounded-full bg-white/50 px-3 py-1 text-xs font-semibold text-ink shadow-sm">Protected break</span>
         </div>
         <h1 className="mt-8 text-3xl font-semibold">Time's up. {app.name} is locked.</h1>
-        <p className="mt-3 text-white/75">Take {session.lockDurationMinutes} minutes away from the loop and do something physical.</p>
-        <div className="mt-8 rounded-lg bg-white/10 p-4">
-          <p className="text-sm text-white/70">Lock countdown</p>
+        <p className="mt-3 text-muted">Your break has started. Meet without the scroll.</p>
+        <div className="mt-8 rounded-[26px] bg-white/45 p-4 shadow-sm backdrop-blur-xl">
+          <p className="text-sm text-muted">Lock countdown</p>
           <p className="mt-1 text-5xl font-semibold tabular-nums">{formatTimer(remaining)}</p>
         </div>
       </section>
@@ -4373,6 +4404,13 @@ function SettingsPage({
         >
           Open Screen Time Import
         </button>
+        <button
+          type="button"
+          className="w-full rounded-lg border border-line bg-white p-3 text-left text-sm font-semibold text-deep"
+          onClick={() => navigate('/partner/dashboard')}
+        >
+          Partner mode
+        </button>
         {isRemote ? (
           <Button className="w-full" variant="secondary" icon={LogOut} onClick={onLogout}>
             Log out
@@ -4390,9 +4428,9 @@ function SettingsPage({
 
 function SettingsGroup({ title, icon: Icon, children }) {
   return (
-    <section className="mb-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+    <section className="ios-card mb-4 p-5">
       <div className="mb-4 flex items-center gap-3">
-        <div className="grid h-10 w-10 place-items-center rounded-full bg-soft text-primary">
+        <div className="grid h-10 w-10 place-items-center rounded-full bg-white/55 text-primary shadow-sm">
           <Icon className="h-5 w-5" />
         </div>
         <h2 className="font-semibold text-ink">{title}</h2>
@@ -4407,7 +4445,7 @@ function SelectRow({ label, value, options, suffix, onChange }) {
     <label className="flex items-center justify-between gap-3">
       <span className="text-sm font-medium text-ink">{label}</span>
       <select
-        className="min-h-11 rounded-full border border-line bg-canvas px-3 text-sm font-semibold text-ink outline-none focus:border-primary"
+        className="min-h-11 rounded-full border border-line bg-white/45 px-3 text-sm font-semibold text-ink outline-none focus:border-activeBlue"
         value={value}
         onChange={(event) => onChange(event.target.value)}
       >
@@ -4428,8 +4466,8 @@ function ToggleRow({ label, checked, onChange }) {
       <input className="sr-only" type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
       <span
         className={classNames(
-          'relative h-8 w-14 rounded-full transition',
-          checked ? 'bg-primary' : 'bg-line'
+          'relative h-8 w-14 rounded-full border border-white/60 transition shadow-inner',
+          checked ? 'bg-[#2F312D]' : 'bg-loopoutStone/35'
         )}
       >
         <span

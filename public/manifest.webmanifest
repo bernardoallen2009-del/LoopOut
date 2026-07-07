@@ -4,8 +4,8 @@
   "description": "Turn screen time into real-life connection.",
   "start_url": "/dashboard",
   "display": "standalone",
-  "background_color": "#F7FBFF",
-  "theme_color": "#F7FBFF",
+  "background_color": "#F7F7F4",
+  "theme_color": "#C3C4BF",
   "orientation": "portrait",
   "icons": [
     {

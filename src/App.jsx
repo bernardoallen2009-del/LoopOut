@@ -79,7 +79,6 @@ import {
   lockDurations,
   onboardingSlides,
   partnerPlaces,
-  purposeExamples,
   quickTimers,
   rewardCampaigns,
   setupSteps,
@@ -2429,21 +2428,6 @@ function PurposePage({ navigate, draft, setDraft, session }) {
         </div>
       </div>
 
-      <div className="mt-5">
-        <p className="text-sm font-semibold text-ink">Tap a calm starting point</p>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {purposeExamples.map((example) => (
-            <button
-              type="button"
-              key={example}
-              className="min-h-16 rounded-lg border border-line bg-white px-4 py-3 text-left text-sm font-semibold leading-5 text-deep shadow-sm transition active:scale-[0.99]"
-              onClick={() => setDraft({ ...draft, purpose: example })}
-            >
-              {example}
-            </button>
-          ))}
-        </div>
-      </div>
       <Button
         className="mt-5 w-full"
         icon={ArrowRight}
@@ -2502,7 +2486,7 @@ function TimerPage({ navigate, draft, setDraft, settings, startSession, session 
 
       <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-soft">
         <p className="text-sm font-semibold text-ink">Timer</p>
-        <div className="mt-3 grid grid-cols-5 gap-2">
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
           {quickTimers.map((minutes) => (
             <ChoiceButton selected={timer === minutes && !timerCustom} key={minutes} onClick={() => {
               setTimerCustom(false);
@@ -2511,7 +2495,7 @@ function TimerPage({ navigate, draft, setDraft, settings, startSession, session 
               {minutes}m
             </ChoiceButton>
           ))}
-          <ChoiceButton selected={timerCustom} onClick={() => setTimerCustom(true)}>
+          <ChoiceButton className="col-span-2 sm:col-span-1" selected={timerCustom} onClick={() => setTimerCustom(true)}>
             Custom
           </ChoiceButton>
         </div>
@@ -2546,13 +2530,14 @@ function TimerPage({ navigate, draft, setDraft, settings, startSession, session 
   );
 }
 
-function ChoiceButton({ selected, children, onClick }) {
+function ChoiceButton({ selected, children, onClick, className = '' }) {
   return (
     <button
       type="button"
       className={classNames(
-        'ios-pill min-h-11 rounded-full border px-2 text-sm font-semibold',
-        selected ? 'border-[#2F312D] bg-[#2F312D] text-white shadow-[0_12px_26px_rgba(0,0,0,0.14)]' : 'border-white/70 bg-white/45 text-ink'
+        'ios-pill min-h-11 rounded-full border px-3 text-sm font-semibold leading-none',
+        selected ? 'border-[#2F312D] bg-[#2F312D] text-white shadow-[0_12px_26px_rgba(0,0,0,0.14)]' : 'border-white/70 bg-white/45 text-ink',
+        className
       )}
       onClick={onClick}
     >

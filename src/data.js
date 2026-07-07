@@ -10,13 +10,6 @@ export const appOptions = [
   { id: 'custom', name: 'Custom app', category: 'Your choice', glyph: '+', logo: 'custom', tone: '#6EA8FE' },
 ];
 
-export const purposeExamples = [
-  'Reply to one message',
-  'Post a story',
-  'Check a specific update',
-  'Relax for 10 minutes',
-];
-
 export const quickTimers = [5, 10, 15, 20];
 export const lockDurations = [30, 45, 60];
 

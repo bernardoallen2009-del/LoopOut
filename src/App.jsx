@@ -8,6 +8,7 @@ import {
   Building2,
   Calendar,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   CircleUserRound,
   Compass,
@@ -301,6 +302,15 @@ function formatInviteDateTime(value) {
   if (date.toDateString() === today.toDateString()) return `Today at ${formatTime(date)}`;
   if (date.toDateString() === tomorrow.toDateString()) return `Tomorrow at ${formatTime(date)}`;
   return `${formatDate(date)} at ${formatTime(date)}`;
+}
+
+function isInviteVisibleUntilEndOfDay(invite, now = new Date()) {
+  const date = new Date(invite?.suggested_time || invite?.time || '');
+  if (Number.isNaN(date.getTime())) return true;
+
+  const endOfInviteDay = new Date(date);
+  endOfInviteDay.setHours(23, 59, 59, 999);
+  return endOfInviteDay >= now;
 }
 
 function normalizePublicCode(value = '') {
@@ -2114,7 +2124,7 @@ function Dashboard({ navigate, profile, session, now, stats, friends = [], invit
   const today = stats?.today || {};
   const offlineFriends = friends.filter((friend) => friend.isOffline || friend.available).length;
   const pendingInvites = invites.filter((invite) => invite.status === 'pending' || invite.status === 'sent').length;
-  const acceptedInvites = invites.filter((invite) => invite.status === 'accepted').length;
+  const acceptedInvites = invites.filter((invite) => invite.status === 'accepted' && isInviteVisibleUntilEndOfDay(invite, now)).length;
   const todayCards = [
     ['Intentional sessions', loading ? '...' : String(today.completedSessions ?? 0)],
     ['Intentional minutes', loading ? '...' : formatMinutes(today.intentionalMinutes ?? 0)],
@@ -2787,15 +2797,16 @@ function FriendsPage({
   const [hasSearched, setHasSearched] = useState(false);
   const [actionMessage, setActionMessage] = useState('');
   const [actionError, setActionError] = useState('');
+  const [addFriendsOpen, setAddFriendsOpen] = useState(false);
   const visibleFriends = useMemo(() => sortFriendsForMeetups(friends), [friends]);
   const placeOptions = places.length ? places : lisbonPlaces;
   const availableFriends = visibleFriends.filter((friend) => friend.available);
   const nearbyFriends = visibleFriends.filter((friend) => friend.area && friend.area !== 'Area hidden');
   const laterFriends = visibleFriends.filter((friend) => !friend.available);
   const pendingOfflineInvites = invites.filter((invite) => invite.status === 'pending');
-  const confirmedOfflineInvites = invites.filter((invite) => invite.status === 'accepted').slice(0, 3);
-  const incomingOfflineInvites = pendingOfflineInvites.filter((invite) => invite.receiver_id === currentUserId);
-  const outgoingOfflineInvites = pendingOfflineInvites.filter((invite) => invite.sender_id === currentUserId);
+  const confirmedOfflineInvites = invites
+    .filter((invite) => invite.status === 'accepted' && isInviteVisibleUntilEndOfDay(invite))
+    .slice(0, 3);
   const bestFriend = availableFriends[0] || visibleFriends[0];
   const bestPlace = placeOptions[0];
   const filterOptions = [
@@ -2880,120 +2891,93 @@ function FriendsPage({
         </section>
       ) : null}
 
-      {isRemote ? (
+      {isRemote && bestFriend ? (
         <section className="mb-4 rounded-lg border border-line bg-white p-4 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Meetup planner</p>
-              <h2 className="mt-1 text-xl font-semibold text-ink">Make an offline plan.</h2>
-              <p className="mt-1 text-sm leading-6 text-muted">
-                Choose a friend, a place and a time without leaving this page.
+          <div className="flex items-center gap-3">
+            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-soft font-semibold text-deep">
+              {bestFriend.avatar}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-ink">Plan a meetup</p>
+              <p className="truncate text-sm text-muted">
+                {bestFriend.name} · {bestPlace?.name || 'Choose a phone-free place'}
               </p>
             </div>
-            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-soft text-primary">
-              <Calendar className="h-5 w-5" />
-            </div>
           </div>
-
-          <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-            <div className="rounded-lg bg-canvas p-3">
-              <p className="text-lg font-semibold text-ink">{availableFriends.length}</p>
-              <p className="text-xs text-muted">ready now</p>
-            </div>
-            <div className="rounded-lg bg-canvas p-3">
-              <p className="text-lg font-semibold text-ink">{incomingOfflineInvites.length}</p>
-              <p className="text-xs text-muted">waiting</p>
-            </div>
-            <div className="rounded-lg bg-canvas p-3">
-              <p className="text-lg font-semibold text-ink">{outgoingOfflineInvites.length}</p>
-              <p className="text-xs text-muted">sent</p>
-            </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <Button variant="soft" className="px-3" icon={Heart} onClick={() => openInvite(bestFriend, bestPlace)}>
+              Invite
+            </Button>
+            <Button variant="secondary" className="px-3" icon={MapPin} onClick={() => navigate('/places')}>
+              Places
+            </Button>
           </div>
-
-          {bestFriend ? (
-            <div className="mt-4 border-t border-line pt-4">
-              <p className="text-sm font-semibold text-ink">Best plan right now</p>
-              <div className="mt-3 flex items-start gap-3">
-                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-soft font-semibold text-deep">
-                  {bestFriend.avatar}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold text-ink">{bestFriend.name}</p>
-                  <p className="mt-1 text-sm leading-5 text-muted">
-                    {bestFriend.available ? `${bestFriend.status}.` : 'Not offline right now, but ready to plan.'}
-                  </p>
-                  <p className="mt-2 inline-flex max-w-full items-center gap-1 rounded-full bg-soft px-2.5 py-1 text-xs font-medium text-deep">
-                    <MapPin className="h-3 w-3 shrink-0" />
-                    <span className="truncate">{bestPlace?.name || 'Choose a phone-free place'}</span>
-                  </p>
-                </div>
-              </div>
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                <Button variant="soft" className="px-3" icon={Heart} onClick={() => openInvite(bestFriend, bestPlace)}>
-                  Invite
-                </Button>
-                <Button variant="secondary" className="px-3" icon={MapPin} onClick={() => navigate('/places')}>
-                  Pick place
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-4 rounded-lg bg-canvas p-3 text-sm leading-6 text-muted">
-              Add your first friend below, then LoopOut can suggest who to meet and where to go.
-            </div>
-          )}
         </section>
       ) : null}
 
+      {actionMessage ? <p className="mb-4 rounded-lg bg-[#E8F8EF] p-3 text-sm text-[#137A3D]">{actionMessage}</p> : null}
+      {actionError ? <p className="mb-4 rounded-lg bg-[#FFF1F0] p-3 text-sm text-[#B42318]">{actionError}</p> : null}
+
       {isRemote ? (
         <section className="mb-4 rounded-lg border border-line bg-white p-4 shadow-sm">
-          <div className="mb-3">
-            <h2 className="font-semibold text-ink">Add friends</h2>
-            <p className="mt-1 text-sm leading-6 text-muted">Search by username or email and send a request.</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-              <input
-                className="min-h-12 w-full rounded-lg border border-line bg-canvas pl-9 pr-3 text-base text-ink outline-none focus:border-primary focus:bg-white"
-                placeholder="Search username or email"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') runSearch();
-                }}
-              />
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-3 text-left"
+            aria-expanded={addFriendsOpen}
+            onClick={() => setAddFriendsOpen((open) => !open)}
+          >
+            <span>
+              <span className="block font-semibold text-ink">Add friends</span>
+              <span className="mt-1 block text-sm leading-6 text-muted">Search by username or email.</span>
+            </span>
+            <ChevronDown className={classNames('h-5 w-5 shrink-0 text-muted transition', addFriendsOpen ? 'rotate-180' : '')} />
+          </button>
+
+          {addFriendsOpen ? (
+            <div className="mt-4 border-t border-line pt-4">
+              <div className="flex items-center gap-2">
+                <div className="relative min-w-0 flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+                  <input
+                    className="min-h-12 w-full rounded-lg border border-line bg-canvas pl-9 pr-3 text-base text-ink outline-none focus:border-primary focus:bg-white"
+                    placeholder="Search username or email"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') runSearch();
+                    }}
+                  />
+                </div>
+                <Button className="px-4" icon={Search} disabled={searching || query.trim().length < 2} onClick={runSearch}>
+                  {searching ? 'Searching' : 'Search'}
+                </Button>
+              </div>
+              {searchResults.length ? (
+                <div className="mt-3 space-y-2">
+                  {searchResults.map((item) => {
+                    const name = item.full_name || item.username || item.email;
+                    return (
+                      <div className="flex items-center gap-3 rounded-lg bg-canvas p-3" key={item.id}>
+                        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white font-semibold text-deep">
+                          {getInitials(name)}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-ink">{name}</p>
+                          <p className="truncate text-xs text-muted">{item.username ? `@${item.username}` : item.email}</p>
+                        </div>
+                        <Button variant="soft" className="px-3" icon={UserPlus} onClick={() => sendRequest(item.id)}>
+                          Add
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : hasSearched && !searching ? (
+                <p className="mt-3 rounded-lg bg-canvas p-3 text-sm leading-6 text-muted">
+                  No visible LoopOut profile matched that search. Try a username or email.
+                </p>
+              ) : null}
             </div>
-            <Button className="px-4" icon={Search} disabled={searching || query.trim().length < 2} onClick={runSearch}>
-              {searching ? 'Searching' : 'Search'}
-            </Button>
-          </div>
-          {actionMessage ? <p className="mt-3 rounded-lg bg-[#E8F8EF] p-3 text-sm text-[#137A3D]">{actionMessage}</p> : null}
-          {actionError ? <p className="mt-3 rounded-lg bg-[#FFF1F0] p-3 text-sm text-[#B42318]">{actionError}</p> : null}
-          {searchResults.length ? (
-            <div className="mt-3 space-y-2">
-              {searchResults.map((item) => {
-                const name = item.full_name || item.username || item.email;
-                return (
-                  <div className="flex items-center gap-3 rounded-lg bg-canvas p-3" key={item.id}>
-                    <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white font-semibold text-deep">
-                      {getInitials(name)}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-ink">{name}</p>
-                      <p className="truncate text-xs text-muted">{item.username ? `@${item.username}` : item.email}</p>
-                    </div>
-                    <Button variant="soft" className="px-3" icon={UserPlus} onClick={() => sendRequest(item.id)}>
-                      Add
-                    </Button>
-                  </div>
-                );
-              })}
-            </div>
-          ) : hasSearched && !searching ? (
-            <p className="mt-3 rounded-lg bg-canvas p-3 text-sm leading-6 text-muted">
-              No visible LoopOut profile matched that search. Try a username or email.
-            </p>
           ) : null}
         </section>
       ) : null}
@@ -3813,33 +3797,26 @@ function PlacesPage({
   places = lisbonPlaces,
   loading,
   defaultCategory = 'All',
-  title = 'Phone-free places in Lisbon',
-  subtitle = 'Verified rewards and calm public places.',
 }) {
   const [category, setCategory] = useState(defaultCategory);
   const [userLocation, setUserLocation] = useState(null);
-  const [locationStatus, setLocationStatus] = useState('idle');
   const categories = ['All', 'Verified Partners', 'Cafes', 'Restaurants', 'Study Spaces', 'Gardens', 'Libraries', 'Parks'];
   const loopoutPlaces = useMemo(() => buildLoopOutPlaces(places), [places]);
 
   const requestLocation = useCallback(() => {
     if (!navigator.geolocation) {
-      setLocationStatus('unsupported');
       return;
     }
 
-    setLocationStatus('requesting');
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setUserLocation({
           lat: position.coords.latitude,
           lng: position.coords.longitude,
         });
-        setLocationStatus('ready');
       },
-      (error) => {
+      () => {
         setUserLocation(null);
-        setLocationStatus(error.code === error.PERMISSION_DENIED ? 'denied' : 'error');
       },
       {
         enableHighAccuracy: true,
@@ -3869,72 +3846,9 @@ function PlacesPage({
   }, [loopoutPlaces, userLocation]);
 
   const visiblePlaces = placesByDistance.filter((place) => matchesPlaceCategory(place, category));
-  const topPlace = visiblePlaces[0];
-  const verifiedCount = loopoutPlaces.filter((place) => place.isVerified).length;
-  const suggestedCount = loopoutPlaces.filter((place) => !place.isPartner).length;
-
-  const locationCopy = {
-    idle: 'Preparing nearby places.',
-    requesting: 'Requesting your location...',
-    ready: 'Nearest places first.',
-    denied: 'Location is off. Showing the curated order.',
-    error: 'Could not read your location. Showing the curated order.',
-    unsupported: 'Location is not available in this browser.',
-  };
 
   return (
     <>
-      <PageHeader title={title} subtitle={subtitle} navigate={navigate} backTo="/dashboard" />
-      <section className="mb-4 rounded-lg border border-line bg-white p-5 shadow-soft">
-        <div className="flex items-start gap-3">
-          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-soft text-primary">
-            <WalletCards className="h-5 w-5" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">LoopOut Pass places</p>
-            <h1 className="mt-1 text-2xl font-semibold leading-tight text-ink">Rewards where they are verified. Suggestions where they are public.</h1>
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <div className="rounded-lg bg-soft p-3">
-                <p className="text-xl font-semibold text-ink">{verifiedCount}</p>
-                <p className="text-xs text-muted">verified partners</p>
-              </div>
-              <div className="rounded-lg bg-canvas p-3">
-                <p className="text-xl font-semibold text-ink">{suggestedCount}</p>
-                <p className="text-xs text-muted">suggested spots</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-      <div className="mb-4 rounded-lg border border-line bg-white p-4 shadow-sm">
-        <div className="flex items-start gap-3">
-          <div className="grid h-11 w-11 place-items-center rounded-full bg-soft text-primary">
-            <Compass className="h-5 w-5" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <span
-                className={classNames(
-                  'rounded-full px-3 py-1 text-xs font-semibold',
-                  locationStatus === 'ready' ? 'bg-[#E8F8EF] text-[#137A3D]' : 'bg-soft text-deep'
-                )}
-              >
-                {locationCopy[locationStatus]}
-              </span>
-              {['denied', 'error'].includes(locationStatus) ? (
-                <button type="button" className="text-xs font-semibold text-primary" onClick={requestLocation}>
-                  Try location again
-                </button>
-              ) : null}
-            </div>
-            <p className="mt-2 text-sm leading-6 text-muted">
-              {topPlace
-                ? `${visiblePlaces.length} place${visiblePlaces.length === 1 ? '' : 's'} shown. ${topPlace.name} is first in this view.`
-                : 'No places match this filter yet.'}
-            </p>
-          </div>
-        </div>
-      </div>
       <div className="flex gap-2 overflow-x-auto pb-3">
         {categories.map((item) => (
           <button
@@ -5315,8 +5229,6 @@ export default function App() {
             places={activePlaces}
             loading={dataLoading}
             defaultCategory="Verified Partners"
-            title="LoopOut Pass places"
-            subtitle="Verified partner rewards near you."
           />
         );
       }

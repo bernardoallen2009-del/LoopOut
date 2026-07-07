@@ -527,6 +527,25 @@ export async function createInviteRecord({ senderId, receiverId, placeId, sugges
   return data;
 }
 
+export async function createPartnerLeadRecord(lead) {
+  assertSupabase();
+  const { error } = await supabase
+    .from('partner_leads')
+    .insert({
+      contact_name: lead.contactName,
+      business_name: lead.businessName,
+      email: lead.email,
+      city: lead.city || 'Lisbon',
+      area: lead.area,
+      reward_idea: lead.rewardIdea,
+      notes: lead.note,
+      source: 'public_partners_page',
+      status: 'new',
+    });
+  if (error) throw error;
+  return null;
+}
+
 export async function respondToInvite(inviteId, status) {
   assertSupabase();
   const { data, error } = await supabase.from('offline_invites').update({ status }).eq('id', inviteId).select().single();

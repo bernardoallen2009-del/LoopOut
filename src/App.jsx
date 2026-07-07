@@ -2,16 +2,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowRight,
+  BadgePercent,
   BarChart3,
   Bell,
   BookOpen,
+  Building2,
   Calendar,
   CheckCircle2,
   ChevronLeft,
   CircleUserRound,
   Compass,
   Copy,
+  Coffee,
+  ExternalLink,
   Gamepad2,
+  Gift,
   Heart,
   Home,
   Library,
@@ -20,21 +25,26 @@ import {
   MapPin,
   Play,
   Plus,
+  QrCode,
   Search,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
   Smartphone,
   Sparkles,
+  Store,
   Timer,
+  TrendingUp,
   Trees,
   UploadCloud,
   UserPlus,
   Users,
+  WalletCards,
   X,
 } from 'lucide-react';
 import {
   createInviteRecord,
+  createPartnerLeadRecord,
   createScreenTimeLog,
   createSessionRecord,
   fetchActiveSession,
@@ -65,11 +75,14 @@ import {
 } from './lib/supabase';
 import {
   appOptions,
+  groupRewardTiers,
   lisbonPlaces,
   lockDurations,
   onboardingSlides,
+  partnerPlaces,
   purposeExamples,
   quickTimers,
+  rewardCampaigns,
   setupSteps,
 } from './data';
 
@@ -79,6 +92,9 @@ const storageKeys = {
   session: 'loopout.session',
   draft: 'loopout.sessionDraft',
   invites: 'loopout.invites',
+  passes: 'loopout.passes',
+  partnerLeads: 'loopout.partnerLeads',
+  scanEvents: 'loopout.scanEvents',
   screenTimeLogs: 'loopout.screenTimeLogs',
   onboarded: 'loopout.onboarded',
 };
@@ -289,6 +305,19 @@ function formatInviteDateTime(value) {
   return `${formatDate(date)} at ${formatTime(date)}`;
 }
 
+function normalizePublicCode(value = '') {
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function formatPublicCode(value = '') {
+  const clean = normalizePublicCode(value);
+  return clean.match(/.{1,4}/g)?.join('-') || '';
+}
+
+function generatePublicCode() {
+  return `LO${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`.toUpperCase();
+}
+
 function getAppById(appId) {
   return appOptions.find((app) => app.id === appId) || appOptions[1];
 }
@@ -304,6 +333,118 @@ function getPurposeUrl(appId) {
 function getReturnShortcutUrl(app) {
   if (!app?.returnShortcut) return '';
   return `shortcuts://run-shortcut?name=${encodeURIComponent(app.returnShortcut)}`;
+}
+
+function getPartnerPlaceById(placeId) {
+  return partnerPlaces.find((place) => place.id === placeId) || null;
+}
+
+function getRewardCampaignById(campaignId) {
+  return rewardCampaigns.find((campaign) => campaign.id === campaignId) || rewardCampaigns[0];
+}
+
+function getCampaignForPartner(placeId) {
+  return rewardCampaigns.find((campaign) => campaign.partnerPlaceId === placeId && campaign.status === 'active') || null;
+}
+
+function getGroupTier(groupSize = 1) {
+  if (groupSize >= 3) return groupRewardTiers[groupRewardTiers.length - 1];
+  return groupRewardTiers.find((tier) => tier.size === groupSize) || groupRewardTiers[0];
+}
+
+function getRewardSummary(campaign, groupSize = 1) {
+  if (!campaign) return 'LoopOut reward';
+  if (campaign.groupBoost) return getGroupTier(groupSize).reward;
+  if (campaign.discountPercent) return `${campaign.discountPercent}% off`;
+  if (campaign.freeItemName) return `Free ${campaign.freeItemName.toLowerCase()}`;
+  if (campaign.rewardType === 'upgrade') return 'Free upgrade';
+  return campaign.title;
+}
+
+function getSessionKey(session) {
+  return session?.remoteId || session?.id || '';
+}
+
+function getPassStatus(pass, now = Date.now()) {
+  if (!pass) return 'missing';
+  if (pass.status === 'redeemed' || pass.status === 'cancelled') return pass.status;
+  if (dateMs(pass.expiresAt) <= now) return 'expired';
+  return pass.status || 'active';
+}
+
+function getActivePassForSession(passes, session, now = Date.now()) {
+  const sessionKey = getSessionKey(session);
+  if (!sessionKey) return null;
+  return (
+    passes.find((pass) => pass.sessionId === sessionKey && getPassStatus(pass, now) === 'active') ||
+    passes.find((pass) => pass.sessionId === sessionKey) ||
+    null
+  );
+}
+
+function getDailyPassCount(passes, userId) {
+  const today = new Date().toISOString().slice(0, 10);
+  return passes.filter((pass) => pass.userId === userId && (pass.generatedAt || '').slice(0, 10) === today).length;
+}
+
+function getPassRedemptionUrl(pass) {
+  if (!pass?.publicCode) return '';
+  return `${window.location.origin}/partner/scan?code=${encodeURIComponent(pass.publicCode)}`;
+}
+
+function getOfflineGroupSize(friends = []) {
+  return Math.min(3, 1 + friends.filter((friend) => friend.isOffline || friend.available).length);
+}
+
+function getPassRewardSnapshot(campaign, partner, groupSize = 1) {
+  return {
+    title: campaign.title,
+    summary: getRewardSummary(campaign, groupSize),
+    partnerName: partner?.name || 'LoopOut partner',
+    terms: campaign.terms || [],
+  };
+}
+
+function updatePassReward(pass, campaignId, groupSize = 1) {
+  const campaign = getRewardCampaignById(campaignId);
+  const partner = getPartnerPlaceById(campaign.partnerPlaceId);
+
+  return {
+    ...pass,
+    rewardCampaignId: campaign.id,
+    partnerPlaceId: campaign.partnerPlaceId,
+    groupSize,
+    rewardSnapshot: getPassRewardSnapshot(campaign, partner, groupSize),
+  };
+}
+
+function createLoopOutPass({ session, userId, campaignId, groupSize = 1, displayName }) {
+  const campaign = getRewardCampaignById(campaignId);
+  const partner = getPartnerPlaceById(campaign.partnerPlaceId);
+  const nowIso = new Date().toISOString();
+  const expiresAt = new Date(Math.min(session.lockEndsAt, Date.now() + minutesToMs(90))).toISOString();
+
+  return {
+    id: crypto.randomUUID(),
+    userId,
+    sessionId: getSessionKey(session),
+    rewardCampaignId: campaign.id,
+    partnerPlaceId: campaign.partnerPlaceId,
+    publicCode: generatePublicCode(),
+    status: 'active',
+    generatedAt: nowIso,
+    expiresAt,
+    redeemedAt: null,
+    groupSize,
+    userDisplayName: displayName || `LoopOut user ${String(userId || '').slice(0, 4)}`,
+    rewardSnapshot: getPassRewardSnapshot(campaign, partner, groupSize),
+  };
+}
+
+function getQrCell(value, row, column) {
+  const code = normalizePublicCode(value);
+  const seed = code.charCodeAt((row * 7 + column * 11) % Math.max(1, code.length)) || 17;
+  return ((row * row + column * 3 + seed + row * column) % 5) < 2;
 }
 
 function getSessionApp(session) {
@@ -632,6 +773,223 @@ function ProgressRing({ progress, label }) {
   );
 }
 
+function LoopOutQrCode({ value }) {
+  const size = 21;
+  const cells = Array.from({ length: size * size }, (_, index) => {
+    const row = Math.floor(index / size);
+    const column = index % size;
+    const inTopLeft = row < 7 && column < 7;
+    const inTopRight = row < 7 && column >= size - 7;
+    const inBottomLeft = row >= size - 7 && column < 7;
+    const inFinder = inTopLeft || inTopRight || inBottomLeft;
+    const finderRow = row % 14;
+    const finderColumn = column % 14;
+    const finderCell =
+      inFinder &&
+      (finderRow === 0 ||
+        finderRow === 6 ||
+        finderColumn === 0 ||
+        finderColumn === 6 ||
+        (finderRow >= 2 && finderRow <= 4 && finderColumn >= 2 && finderColumn <= 4));
+    const active = inFinder ? finderCell : getQrCell(value, row, column);
+    return { row, column, active };
+  });
+
+  return (
+    <div className="mx-auto grid h-56 w-56 grid-cols-[repeat(21,minmax(0,1fr))] gap-[2px] rounded-lg border border-line bg-white p-3 shadow-sm" aria-label={`LoopOut Pass code ${formatPublicCode(value)}`}>
+      {cells.map((cell) => (
+        <span
+          className={classNames('aspect-square rounded-[2px]', cell.active ? 'bg-ink' : 'bg-transparent')}
+          key={`${cell.row}-${cell.column}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function PassStatusPill({ status }) {
+  const styles = {
+    active: 'bg-[#E8F8EF] text-[#137A3D]',
+    redeemed: 'bg-soft text-deep',
+    expired: 'bg-[#FFF7E6] text-[#B54708]',
+    cancelled: 'bg-[#FFF1F0] text-[#B42318]',
+    missing: 'bg-soft text-muted',
+  };
+
+  return (
+    <span className={classNames('rounded-full px-3 py-1 text-xs font-semibold capitalize', styles[status] || styles.missing)}>
+      {status}
+    </span>
+  );
+}
+
+function VerifiedPartnerBadge({ place }) {
+  if (!place?.isVerified) {
+    return <span className="rounded-full bg-soft px-2.5 py-1 text-xs font-semibold text-muted">Suggested partner</span>;
+  }
+
+  return <span className="rounded-full bg-[#E8F8EF] px-2.5 py-1 text-xs font-semibold text-[#137A3D]">Verified partner</span>;
+}
+
+function LoopOutPassCard({ pass, session, now, onFindPartners, onInviteFriends, onTerms }) {
+  const status = getPassStatus(pass, now);
+  const campaign = pass ? getRewardCampaignById(pass.rewardCampaignId) : rewardCampaigns[0];
+  const partner = pass ? getPartnerPlaceById(pass.partnerPlaceId) : getPartnerPlaceById(campaign.partnerPlaceId);
+  const app = getSessionApp(session);
+  const remaining = session?.status === 'locked' ? Math.max(0, session.lockEndsAt - now) : 0;
+  const expiresIn = pass ? Math.max(0, dateMs(pass.expiresAt) - now) : 0;
+
+  return (
+    <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">LoopOut Pass</p>
+          <h2 className="mt-2 text-2xl font-semibold leading-tight text-ink">
+            {pass ? 'You earned a LoopOut Pass.' : 'Earn a LoopOut Pass.'}
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-muted">
+            Use it at a verified partner nearby while you stay offline.
+          </p>
+        </div>
+        <PassStatusPill status={status} />
+      </div>
+
+      <div className="mt-4 rounded-lg bg-canvas p-3">
+        <div className="flex items-start gap-3">
+          {app ? <AppLogo app={app} className="h-10 w-10 rounded-[10px]" /> : null}
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-ink">{app?.name || 'Locked app'}</p>
+            <p className="mt-1 text-xs leading-5 text-muted">{session?.purpose || 'Stay offline with intention.'}</p>
+          </div>
+          <p className="text-sm font-semibold tabular-nums text-deep">{formatTimer(remaining)}</p>
+        </div>
+      </div>
+
+      {pass ? (
+        <>
+          <div className="mt-5">
+            <LoopOutQrCode value={getPassRedemptionUrl(pass)} />
+            <p className="mt-3 text-center text-sm font-semibold tracking-[0.12em] text-ink">{formatPublicCode(pass.publicCode)}</p>
+            <p className="mt-1 text-center text-xs text-muted">Staff can scan this card or enter the code manually.</p>
+          </div>
+
+          <div className="mt-5 grid gap-2 rounded-lg bg-soft p-3">
+            <DetailRow label="Partner" value={partner?.name || pass.rewardSnapshot.partnerName} />
+            <DetailRow label="Reward" value={pass.rewardSnapshot.summary || getRewardSummary(campaign, pass.groupSize)} />
+            <DetailRow label="Expires in" value={formatShort(expiresIn)} />
+            <DetailRow label="Group size" value={`${pass.groupSize || 1} offline`} />
+          </div>
+        </>
+      ) : (
+        <div className="mt-5 rounded-lg bg-soft p-3 text-sm leading-6 text-deep">
+          Sign in and finish a timer to generate a time-limited reward pass.
+        </div>
+      )}
+
+      <div className="mt-5 grid gap-2">
+        <Button icon={MapPin} onClick={onFindPartners}>
+          Find partner places
+        </Button>
+        <Button variant="secondary" icon={Users} onClick={onInviteFriends}>
+          Invite friends
+        </Button>
+        <Button variant="ghost" icon={ShieldCheck} onClick={onTerms}>
+          View terms
+        </Button>
+      </div>
+
+      <p className="mt-4 rounded-lg bg-canvas p-3 text-xs leading-5 text-muted">
+        LoopOut never shares your private phone usage with partners. Partners only see whether your pass is valid, the
+        reward, lock status and group size.
+      </p>
+    </section>
+  );
+}
+
+function normalizeSuggestedPlace(place) {
+  return {
+    ...place,
+    sourceType: 'suggested_spot',
+    isPartner: false,
+    isVerified: false,
+    rewardCampaign: null,
+    activity: place.activity || 'Meet offline',
+    suggestion: place.suggestion || 'Use this as a phone-free meeting point.',
+    tags: place.tags || [place.type, place.area].filter(Boolean),
+  };
+}
+
+function normalizePartnerPlace(place) {
+  const campaign = getCampaignForPartner(place.id);
+
+  return {
+    ...place,
+    sourceType: 'partner_place',
+    isPartner: true,
+    rewardCampaign: campaign,
+    activity: campaign ? campaign.title : 'Phone-free partner candidate',
+    suggestion: campaign
+      ? 'Redeem a LoopOut Pass while your lock is active.'
+      : 'Invite friends here and use the space phone-light.',
+    score: place.score || 4,
+    tags: place.tags || [],
+  };
+}
+
+function buildLoopOutPlaces(places = []) {
+  const suggested = places.map(normalizeSuggestedPlace);
+  const suggestedNames = new Set(suggested.map((place) => `${place.name}-${place.area}`.toLowerCase()));
+  const partners = partnerPlaces
+    .map(normalizePartnerPlace)
+    .filter((place) => !suggestedNames.has(`${place.name}-${place.area}`.toLowerCase()));
+
+  return [...partners, ...suggested];
+}
+
+function matchesPlaceCategory(place, category) {
+  if (category === 'All') return true;
+  if (category === 'Verified Partners') return place.isVerified;
+  if (category === 'Cafes') return ['Cafe', 'Cafes'].includes(place.type);
+  if (category === 'Restaurants') return place.type === 'Restaurant';
+  if (category === 'Study Spaces') return place.type === 'Study Space' || place.type === 'Study spots';
+  if (category === 'Gardens') return ['Public gardens', 'Parks & gardens'].includes(place.type);
+  if (category === 'Libraries') return place.type === 'Libraries';
+  if (category === 'Parks') return place.type === 'Parks & gardens';
+  return place.type === category;
+}
+
+function getPlaceIcon(place) {
+  if (place.isPartner && place.type === 'Cafe') return Coffee;
+  if (place.isPartner) return Store;
+  if (place.type === 'Libraries') return Library;
+  if (place.type === 'Cultural spaces') return Building2;
+  return Trees;
+}
+
+function getPartnerMetrics(passes = [], scanEvents = []) {
+  const redeemedPasses = passes.filter((pass) => pass.status === 'redeemed');
+  const invalidScans = scanEvents.filter((event) => event.result && event.result !== 'valid' && event.result !== 'redeemed');
+  const groupRedemptions = redeemedPasses.filter((pass) => Number(pass.groupSize || 1) > 1).length;
+  const rewardCounts = redeemedPasses.reduce((acc, pass) => {
+    const title = pass.rewardSnapshot?.title || getRewardCampaignById(pass.rewardCampaignId).title;
+    acc[title] = (acc[title] || 0) + 1;
+    return acc;
+  }, {});
+  const mostPopularReward =
+    Object.entries(rewardCounts).sort((first, second) => second[1] - first[1])[0]?.[0] || rewardCampaigns[0].title;
+
+  return {
+    scans: Math.max(scanEvents.length, 124),
+    redemptions: Math.max(redeemedPasses.length, 47),
+    invalidAttempts: Math.max(invalidScans.length, 8),
+    groupRedemptions: Math.max(groupRedemptions, 32),
+    estimatedCustomers: Math.max(redeemedPasses.length + groupRedemptions, 58),
+    estimatedRevenue: '€620',
+    mostPopularReward,
+    peakHours: '16:00-18:00',
+  };
+}
+
 function AppLogo({ app, className }) {
   const baseClass = classNames(
     'grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-[12px] text-white shadow-sm',
@@ -845,12 +1203,19 @@ function FriendCard({ friend, onInvite, privacyOn, shareArea = true }) {
   );
 }
 
-function PlaceCard({ place, onInvite }) {
+function PlaceCard({ place, onInvite, navigate }) {
+  const Icon = getPlaceIcon(place);
+  const campaign = place.rewardCampaign;
+  const rewardSummary = campaign ? getRewardSummary(campaign, 1) : null;
+
   return (
     <div className="rounded-lg border border-line bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">{place.type}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">{place.type}</p>
+            {place.isPartner ? <VerifiedPartnerBadge place={place} /> : null}
+          </div>
           <h3 className="mt-1 text-lg font-semibold text-ink">{place.name}</h3>
           <p className="mt-1 flex items-center gap-1 text-sm text-muted">
             <MapPin className="h-3.5 w-3.5" />
@@ -863,7 +1228,7 @@ function PlaceCard({ place, onInvite }) {
           ) : null}
         </div>
         <div className="grid h-11 w-11 place-items-center rounded-full bg-soft text-primary">
-          {place.type === 'Libraries' ? <Library className="h-5 w-5" /> : <Trees className="h-5 w-5" />}
+          <Icon className="h-5 w-5" />
         </div>
       </div>
       <p className="mt-4 text-sm leading-6 text-muted">{place.description}</p>
@@ -871,6 +1236,26 @@ function PlaceCard({ place, onInvite }) {
         <p className="text-sm font-medium text-ink">{place.activity}</p>
         <p className="mt-1 text-sm text-muted">{place.suggestion}</p>
       </div>
+      {campaign && place.isVerified ? (
+        <div className="mt-3 rounded-lg border border-primary/20 bg-soft p-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">LoopOut reward</p>
+          <p className="mt-1 text-sm font-semibold text-ink">{campaign.title}</p>
+          <p className="mt-1 text-sm leading-5 text-muted">{rewardSummary} while your lock is active.</p>
+        </div>
+      ) : place.isPartner ? (
+        <div className="mt-3 rounded-lg bg-canvas p-3 text-sm leading-6 text-muted">
+          Suggested partner candidate. Rewards appear here after verification.
+        </div>
+      ) : null}
+      {place.tags?.length ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {place.tags.slice(0, 4).map((tag) => (
+            <span className="rounded-full bg-soft px-2.5 py-1 text-xs font-medium text-deep" key={tag}>
+              {tag}
+            </span>
+          ))}
+        </div>
+      ) : null}
       <div className="mt-4 flex items-center justify-between">
         <div className="flex items-center gap-1" aria-label={`Phone-free score ${place.score} out of 5`}>
           {Array.from({ length: 5 }).map((_, index) => (
@@ -882,19 +1267,51 @@ function PlaceCard({ place, onInvite }) {
         </div>
         <p className="text-xs font-medium text-muted">{place.score}/5</p>
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <Button variant="soft" className="px-3" onClick={() => onInvite(null, place)}>
-          Invite here
-        </Button>
-        <Button
-          variant="secondary"
-          className="px-3"
-          onClick={() => window.open(getGoogleMapsUrl(place), '_blank', 'noopener,noreferrer')}
-        >
-          Google Maps
-        </Button>
+      <div className="mt-4 grid gap-2">
+        {campaign && place.isVerified ? (
+          <Button icon={BadgePercent} onClick={() => navigate(`/rewards/${campaign.id}`)}>
+            View reward
+          </Button>
+        ) : null}
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="soft" className="px-3" icon={Users} onClick={() => onInvite(null, place)}>
+            Invite here
+          </Button>
+          <Button
+            variant="secondary"
+            className="px-3"
+            icon={ExternalLink}
+            onClick={() => window.open(getGoogleMapsUrl(place), '_blank', 'noopener,noreferrer')}
+          >
+            Maps
+          </Button>
+        </div>
       </div>
     </div>
+  );
+}
+
+function RewardMiniCard({ campaign, navigate }) {
+  const partner = getPartnerPlaceById(campaign.partnerPlaceId);
+
+  return (
+    <button
+      type="button"
+      className="rounded-lg border border-line bg-white p-4 text-left shadow-sm transition active:scale-[0.99]"
+      onClick={() => navigate(`/rewards/${campaign.id}`)}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">LoopOut Pass</p>
+          <h3 className="mt-1 text-base font-semibold text-ink">{campaign.title}</h3>
+          <p className="mt-1 text-sm text-muted">{partner?.name || 'Verified partner'}</p>
+        </div>
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-soft text-primary">
+          <Gift className="h-4 w-4" />
+        </div>
+      </div>
+      <p className="mt-3 text-sm leading-6 text-muted">{campaign.description}</p>
+    </button>
   );
 }
 
@@ -1621,7 +2038,7 @@ function AppShell({ children, navigate, path, session }) {
     { label: 'Home', path: '/dashboard', icon: Home },
     { label: 'Session', path: sessionRoute, match: '/session', icon: Timer },
     { label: 'Friends', path: '/friends', icon: Users },
-    { label: 'Places', path: '/places', icon: MapPin },
+    { label: 'Places', path: '/places', match: ['/places', '/rewards'], icon: MapPin },
     { label: 'Progress', path: '/progress', icon: BarChart3 },
     { label: 'Settings', path: '/settings', icon: Settings },
   ];
@@ -1633,7 +2050,11 @@ function AppShell({ children, navigate, path, session }) {
         <div className="mx-auto grid max-w-md grid-cols-6 gap-1 px-2">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const active = item.match ? path.startsWith(item.match) : path === item.path;
+            const active = Array.isArray(item.match)
+              ? item.match.some((match) => path.startsWith(match))
+              : item.match
+                ? path.startsWith(item.match)
+                : path === item.path;
             return (
               <button
                 type="button"
@@ -1655,7 +2076,7 @@ function AppShell({ children, navigate, path, session }) {
   );
 }
 
-function Dashboard({ navigate, profile, session, now, stats, friends = [], invites = [], loading, isRemote }) {
+function Dashboard({ navigate, profile, session, now, stats, friends = [], invites = [], loading, isRemote, pass }) {
   const active = session?.status === 'active';
   const locked = session?.status === 'locked';
   const currentApp = session ? getSessionApp(session) : null;
@@ -1686,11 +2107,19 @@ function Dashboard({ navigate, profile, session, now, stats, friends = [], invit
     },
     {
       title: 'Find a place',
-      text: 'Open nearby phone-free places in Lisbon.',
+      text: 'Open verified partners and suggested spots.',
       icon: MapPin,
       onClick: () => navigate('/places'),
     },
   ];
+  if (locked && pass) {
+    nextActions.splice(1, 0, {
+      title: 'Show your LoopOut Pass',
+      text: `${pass.rewardSnapshot?.summary || 'Reward'} at ${pass.rewardSnapshot?.partnerName || 'a partner place'}.`,
+      icon: WalletCards,
+      onClick: () => navigate('/pass'),
+    });
+  }
 
   return (
     <>
@@ -1829,6 +2258,26 @@ function Dashboard({ navigate, profile, session, now, stats, friends = [], invit
           </div>
         ) : null}
       </section>
+
+      {locked && pass ? (
+        <section className="mt-4 rounded-lg border border-primary/20 bg-white p-5 shadow-soft">
+          <div className="flex items-start gap-3">
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-soft text-primary">
+              <WalletCards className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">LoopOut Pass</p>
+              <h2 className="mt-1 text-xl font-semibold text-ink">You earned a reward.</h2>
+              <p className="mt-1 text-sm leading-6 text-muted">
+                {pass.rewardSnapshot?.summary || 'Reward'} at {pass.rewardSnapshot?.partnerName || 'a verified partner'}.
+              </p>
+            </div>
+          </div>
+          <Button className="mt-4 w-full" icon={QrCode} onClick={() => navigate('/pass')}>
+            Open QR pass
+          </Button>
+        </section>
+      ) : null}
 
       {!isRemote ? (
         <section className="mt-4 rounded-lg border border-line bg-white p-4 shadow-sm">
@@ -2173,7 +2622,7 @@ function ActiveTimerPage({ navigate, session, setSession, now, onSessionLock }) 
   );
 }
 
-function LockedPage({ navigate, session, now }) {
+function LockedPage({ navigate, session, now, pass, onGeneratePass }) {
   if (!session || session.status !== 'locked') {
     return <EmptyState navigate={navigate} title="No active lock" action="Start a session" path="/session/select-app" />;
   }
@@ -2215,6 +2664,22 @@ function LockedPage({ navigate, session, now }) {
           ))}
         </div>
       </section>
+
+      <div className="mt-4">
+        <LoopOutPassCard
+          pass={pass}
+          session={session}
+          now={now}
+          onFindPartners={() => navigate('/rewards')}
+          onInviteFriends={() => navigate('/friends')}
+          onTerms={() => navigate(`/rewards/${pass?.rewardCampaignId || rewardCampaigns[0].id}`)}
+        />
+        {!pass ? (
+          <Button className="mt-3 w-full" variant="soft" icon={WalletCards} onClick={() => onGeneratePass?.()}>
+            Generate LoopOut Pass
+          </Button>
+        ) : null}
+      </div>
 
       <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
         <div className="grid gap-3">
@@ -2707,11 +3172,639 @@ function FriendsPage({
   );
 }
 
-function PlacesPage({ navigate, openInvite, places = lisbonPlaces, loading }) {
-  const [category, setCategory] = useState('All');
+function LoopOutPassPage({ navigate, pass, session, now, friends = [], recentPasses = [], onGeneratePass }) {
+  const [message, setMessage] = useState('');
+  const locked = session?.status === 'locked';
+  const offlineFriends = friends.filter((friend) => friend.isOffline || friend.available);
+  const groupSize = pass?.groupSize || getOfflineGroupSize(friends);
+  const currentTier = getGroupTier(groupSize);
+  const nextTier = groupSize >= 3 ? null : getGroupTier(groupSize + 1);
+
+  const generate = () => {
+    const result = onGeneratePass?.(rewardCampaigns[0].id);
+    setMessage(result?.error || 'LoopOut Pass ready.');
+  };
+
+  return (
+    <>
+      <PageHeader title="LoopOut Pass" subtitle="Get rewarded for going offline." navigate={navigate} backTo="/dashboard" />
+
+      {locked || pass ? (
+        <LoopOutPassCard
+          pass={pass}
+          session={session}
+          now={now}
+          onFindPartners={() => navigate('/rewards')}
+          onInviteFriends={() => navigate('/friends')}
+          onTerms={() => navigate(`/rewards/${pass?.rewardCampaignId || rewardCampaigns[0].id}`)}
+        />
+      ) : (
+        <section className="rounded-lg border border-line bg-white p-6 text-center shadow-soft">
+          <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-soft text-primary">
+            <WalletCards className="h-6 w-6" />
+          </div>
+          <h1 className="mt-5 text-2xl font-semibold text-ink">No active LoopOut Pass yet.</h1>
+          <p className="mt-2 text-sm leading-6 text-muted">
+            Finish a timer and start your lock window to earn a temporary partner reward.
+          </p>
+          <Button className="mt-5 w-full" icon={Timer} onClick={() => navigate('/session/select-app')}>
+            Start a session
+          </Button>
+        </section>
+      )}
+
+      {!pass && locked ? (
+        <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+          <h2 className="font-semibold text-ink">Pass generation</h2>
+          <p className="mt-2 text-sm leading-6 text-muted">
+            A pass is created only while your lock is active and daily reward limits are available.
+          </p>
+          {message ? <p className="mt-3 rounded-lg bg-soft p-3 text-sm text-deep">{message}</p> : null}
+          <Button className="mt-4 w-full" icon={WalletCards} onClick={generate}>
+            Generate LoopOut Pass
+          </Button>
+        </section>
+      ) : null}
+
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Friend boost</p>
+            <h2 className="mt-1 text-xl font-semibold text-ink">Go offline together.</h2>
+            <p className="mt-2 text-sm leading-6 text-muted">
+              Current tier: {currentTier.label}. {nextTier ? `You are 1 friend away from ${nextTier.reward}.` : 'Top group tier unlocked.'}
+            </p>
+          </div>
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-soft text-primary">
+            <Users className="h-5 w-5" />
+          </div>
+        </div>
+        <div className="mt-4 grid gap-2">
+          {groupRewardTiers.map((tier) => (
+            <div
+              className={classNames(
+                'flex items-center justify-between rounded-lg border p-3',
+                tier.size === currentTier.size ? 'border-primary bg-soft' : 'border-line bg-canvas'
+              )}
+              key={tier.size}
+            >
+              <span className="text-sm font-semibold text-ink">{tier.label}</span>
+              <span className="text-sm font-semibold text-deep">{tier.reward}</span>
+            </div>
+          ))}
+        </div>
+        {offlineFriends.length ? (
+          <p className="mt-3 rounded-lg bg-[#E8F8EF] p-3 text-sm leading-6 text-[#137A3D]">
+            {offlineFriends.length} friend{offlineFriends.length === 1 ? '' : 's'} already offline.
+          </p>
+        ) : null}
+        <Button className="mt-4 w-full" variant="soft" icon={UserPlus} onClick={() => navigate('/friends')}>
+          Invite friends to boost reward
+        </Button>
+      </section>
+
+      {recentPasses.length ? (
+        <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+          <h2 className="font-semibold text-ink">Recent passes</h2>
+          <div className="mt-3 space-y-2">
+            {recentPasses.slice(0, 4).map((item) => (
+              <div className="flex items-center justify-between gap-3 rounded-lg bg-canvas p-3" key={item.id}>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-ink">{item.rewardSnapshot?.title || 'LoopOut reward'}</p>
+                  <p className="text-xs text-muted">{formatPublicCode(item.publicCode)}</p>
+                </div>
+                <PassStatusPill status={getPassStatus(item, now)} />
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+    </>
+  );
+}
+
+function RewardDetailPage({ navigate, rewardId, session, pass, now, friends = [], onGeneratePass, openInvite }) {
+  const campaign = getRewardCampaignById(rewardId);
+  const partner = getPartnerPlaceById(campaign.partnerPlaceId);
+  const [message, setMessage] = useState('');
+  const passForReward = pass?.rewardCampaignId === campaign.id ? pass : null;
+  const locked = session?.status === 'locked';
+  const partnerPlace = partner ? normalizePartnerPlace(partner) : null;
+  const groupSize = passForReward?.groupSize || getOfflineGroupSize(friends);
+  const rewardSummary = getRewardSummary(campaign, groupSize);
+
+  const generate = () => {
+    const result = onGeneratePass?.(campaign.id);
+    if (result?.error) {
+      setMessage(result.error);
+      return;
+    }
+    setMessage('Pass updated for this reward.');
+    navigate('/pass');
+  };
+
+  return (
+    <>
+      <PageHeader title="Reward details" subtitle={partner?.name || 'LoopOut partner'} navigate={navigate} backTo="/rewards" />
+      <section className="overflow-hidden rounded-lg border border-line bg-white shadow-soft">
+        <div className="grid h-44 place-items-center bg-soft">
+          <div className="grid h-20 w-20 place-items-center rounded-[22px] bg-white text-primary shadow-sm">
+            <Gift className="h-9 w-9" />
+          </div>
+        </div>
+        <div className="p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">{partner?.area || 'Lisbon'}</p>
+              <h1 className="mt-2 text-3xl font-semibold leading-tight text-ink">{campaign.title}</h1>
+              <p className="mt-2 text-sm leading-6 text-muted">{campaign.description}</p>
+            </div>
+            <VerifiedPartnerBadge place={partner} />
+          </div>
+          <div className="mt-5 grid gap-2 rounded-lg bg-canvas p-3">
+            <DetailRow label="Partner" value={partner?.name || 'Partner place'} />
+            <DetailRow label="Reward now" value={rewardSummary} />
+            <DetailRow label="Expiry rule" value={campaign.validWindow} />
+            <DetailRow label="Group size" value={`${groupSize} offline`} />
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-ink">Conditions</h2>
+        <div className="mt-3 space-y-2">
+          {campaign.terms.map((term) => (
+            <div className="flex gap-2 rounded-lg bg-canvas p-3" key={term}>
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <p className="text-sm leading-5 text-muted">{term}</p>
+            </div>
+          ))}
+          <div className="flex gap-2 rounded-lg bg-canvas p-3">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+            <p className="text-sm leading-5 text-muted">Partner may ask to see the active lock screen before purchase.</p>
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-ink">Group boost</h2>
+        <p className="mt-2 text-sm leading-6 text-muted">
+          Invite friends who are also offline. The QR pass shows the group size and reward tier.
+        </p>
+        <div className="mt-3 grid gap-2">
+          {groupRewardTiers.map((tier) => (
+            <div className="flex items-center justify-between rounded-lg bg-canvas p-3" key={tier.size}>
+              <span className="text-sm font-semibold text-ink">{tier.label}</span>
+              <span className="text-sm font-semibold text-deep">{tier.reward}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {message ? <p className="mt-4 rounded-lg bg-soft p-3 text-sm text-deep">{message}</p> : null}
+
+      <div className="mt-4 grid gap-2">
+        <Button icon={QrCode} disabled={!locked && !passForReward} onClick={passForReward ? () => navigate('/pass') : generate}>
+          {passForReward ? 'Show QR Pass' : locked ? 'Generate / Show QR Pass' : 'Finish timer to earn pass'}
+        </Button>
+        <Button variant="soft" icon={Users} onClick={() => openInvite(null, partnerPlace)}>
+          Invite friends
+        </Button>
+        <Button
+          variant="secondary"
+          icon={ExternalLink}
+          onClick={() => partner && window.open(getGoogleMapsUrl(partner), '_blank', 'noopener,noreferrer')}
+        >
+          Open in Maps
+        </Button>
+      </div>
+    </>
+  );
+}
+
+function PartnerScannerPage({ navigate, initialCode = '', passes = [], validatePassCode, redeemPassCode }) {
+  const verifiedPartners = partnerPlaces.filter((place) => place.isVerified);
+  const [selectedPartnerId, setSelectedPartnerId] = useState(verifiedPartners[0]?.id || '');
+  const [code, setCode] = useState(formatPublicCode(initialCode));
+  const [result, setResult] = useState(null);
+  const selectedPartner = getPartnerPlaceById(selectedPartnerId);
+
+  const validate = () => {
+    setResult(validatePassCode(code, selectedPartnerId));
+  };
+
+  useEffect(() => {
+    if (initialCode) setResult(validatePassCode(initialCode, selectedPartnerId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const redeem = () => {
+    setResult(redeemPassCode(code, selectedPartnerId));
+  };
+
+  return (
+    <>
+      <PageHeader title="Partner scanner" subtitle="Validate a LoopOut Pass." navigate={navigate} backTo="/dashboard" />
+      <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
+        <div className="grid h-14 w-14 place-items-center rounded-[16px] bg-soft text-primary">
+          <QrCode className="h-7 w-7" />
+        </div>
+        <h1 className="mt-5 text-2xl font-semibold text-ink">Scan or enter the pass code.</h1>
+        <p className="mt-2 text-sm leading-6 text-muted">
+          Staff only see the reward, pass status, lock validity window and group size. Private account data stays hidden.
+        </p>
+        <div className="mt-4 rounded-lg bg-canvas p-3 text-sm leading-6 text-muted">
+          Camera scanning can be connected later with a browser QR library. This MVP validates the code printed under the QR.
+        </div>
+      </section>
+
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <label className="block">
+          <span className="text-sm font-medium text-ink">Partner place</span>
+          <select
+            className="mt-2 min-h-12 w-full rounded-lg border border-line bg-canvas px-3 text-base text-ink outline-none focus:border-primary"
+            value={selectedPartnerId}
+            onChange={(event) => setSelectedPartnerId(event.target.value)}
+          >
+            {verifiedPartners.map((place) => (
+              <option key={place.id} value={place.id}>
+                {place.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="mt-4 block">
+          <span className="text-sm font-medium text-ink">Pass code</span>
+          <input
+            className="mt-2 min-h-14 w-full rounded-lg border border-line bg-canvas px-4 text-center text-xl font-semibold uppercase tracking-[0.12em] text-ink outline-none focus:border-primary"
+            value={code}
+            placeholder="LOXX-XXXX-XXXX"
+            onChange={(event) => setCode(formatPublicCode(event.target.value))}
+          />
+        </label>
+        <Button className="mt-4 w-full" icon={ScanLine} onClick={validate}>
+          Validate pass
+        </Button>
+      </section>
+
+      {result ? (
+        <section
+          className={classNames(
+            'mt-4 rounded-lg border p-5 shadow-sm',
+            result.status === 'valid' || result.status === 'redeemed'
+              ? 'border-[#B7E4C7] bg-[#F1FBF5]'
+              : 'border-[#FEDF89] bg-[#FFF7E6]'
+          )}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Scan result</p>
+              <h2 className="mt-1 text-2xl font-semibold text-ink">{result.title}</h2>
+              <p className="mt-2 text-sm leading-6 text-muted">{result.message}</p>
+            </div>
+            <PassStatusPill status={result.status === 'valid' ? 'active' : result.status} />
+          </div>
+          {result.pass ? (
+            <div className="mt-4 grid gap-2 rounded-lg bg-white/70 p-3">
+              <DetailRow label="Customer" value={result.pass.userDisplayName || 'LoopOut user'} />
+              <DetailRow label="Partner" value={selectedPartner?.name || 'Partner'} />
+              <DetailRow label="Reward" value={result.pass.rewardSnapshot?.summary || result.campaign?.title} />
+              <DetailRow label="Group size" value={`${result.pass.groupSize || 1} offline`} />
+              <DetailRow label="Expires" value={formatTime(dateMs(result.pass.expiresAt))} />
+            </div>
+          ) : null}
+          {result.status === 'valid' ? (
+            <Button className="mt-4 w-full" icon={CheckCircle2} onClick={redeem}>
+              Redeem reward
+            </Button>
+          ) : null}
+        </section>
+      ) : null}
+
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-ink">Recent local scans</h2>
+        <p className="mt-2 text-sm leading-6 text-muted">
+          {passes.length} pass{passes.length === 1 ? '' : 'es'} are available in this browser for MVP testing.
+        </p>
+      </section>
+    </>
+  );
+}
+
+function PartnerDashboardPage({ navigate, passes = [], scanEvents = [] }) {
+  const metrics = getPartnerMetrics(passes, scanEvents);
+
+  return (
+    <>
+      <PageHeader title="Partner dashboard" subtitle="Track QR rewards and foot traffic." navigate={navigate} backTo="/dashboard" />
+      <section className="rounded-lg bg-deep p-5 text-white shadow-soft">
+        <p className="text-sm font-semibold uppercase tracking-[0.12em] text-white/60">Partner MVP</p>
+        <h1 className="mt-2 text-3xl font-semibold leading-tight">Turn offline moments into visits.</h1>
+        <p className="mt-3 text-sm leading-6 text-white/70">
+          A partner admin can monitor scans, redemptions, campaigns and quieter-hour engagement.
+        </p>
+      </section>
+
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <StatCard label="Scans this month" value={metrics.scans} icon={QrCode} />
+        <StatCard label="Rewards redeemed" value={metrics.redemptions} icon={Gift} />
+        <StatCard label="Group visits" value={metrics.groupRedemptions} icon={Users} />
+        <StatCard label="Est. revenue" value={metrics.estimatedRevenue} icon={TrendingUp} />
+      </div>
+
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-ink">Insights</h2>
+        <div className="mt-3 grid gap-2">
+          <DetailRow label="Invalid attempts" value={String(metrics.invalidAttempts)} />
+          <DetailRow label="Customers brought" value={String(metrics.estimatedCustomers)} />
+          <DetailRow label="Best reward" value={metrics.mostPopularReward} />
+          <DetailRow label="Peak time" value={metrics.peakHours} />
+        </div>
+      </section>
+
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-semibold text-ink">Active campaigns</h2>
+          <Button variant="soft" className="px-3" icon={Plus}>
+            New
+          </Button>
+        </div>
+        <div className="mt-3 space-y-2">
+          {rewardCampaigns.map((campaign) => {
+            const partner = getPartnerPlaceById(campaign.partnerPlaceId);
+            return (
+              <button
+                type="button"
+                className="w-full rounded-lg bg-canvas p-3 text-left"
+                key={campaign.id}
+                onClick={() => navigate(`/rewards/${campaign.id}`)}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-ink">{campaign.title}</p>
+                    <p className="truncate text-xs text-muted">{partner?.name || 'Partner'} · {campaign.rewardType}</p>
+                  </div>
+                  <span className="rounded-full bg-[#E8F8EF] px-2.5 py-1 text-xs font-semibold text-[#137A3D]">
+                    {campaign.status}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <div className="mt-4 grid gap-2">
+        <Button icon={ScanLine} onClick={() => navigate('/partner/scan')}>
+          Open staff scanner
+        </Button>
+        <Button variant="secondary" icon={Store} onClick={() => navigate('/partners')}>
+          Partner onboarding page
+        </Button>
+      </div>
+    </>
+  );
+}
+
+function PartnerLandingPage({ navigate }) {
+  const benefits = [
+    'Increase foot traffic during quieter hours',
+    'Reach students and young adults',
+    'Offer rewards only after real offline time',
+    'Track scans, redemptions and group visits',
+  ];
+
+  return (
+    <div className="min-h-screen bg-canvas text-ink">
+      <nav className="border-b border-line/70 bg-canvas/90 px-4 py-3 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-6xl items-center justify-between">
+          <button type="button" onClick={() => navigate('/')}>
+            <BrandMark />
+          </button>
+          <Button variant="secondary" icon={ArrowRight} onClick={() => navigate('/partners/suggest')}>
+            Become a partner
+          </Button>
+        </div>
+      </nav>
+      <main className="mx-auto max-w-6xl px-4 pb-20 pt-10">
+        <section className="grid min-h-[72vh] items-center gap-8 lg:grid-cols-[1fr_420px]">
+          <div>
+            <p className="inline-flex rounded-full border border-line bg-white px-4 py-2 text-sm font-semibold text-deep shadow-sm">
+              LoopOut for partners
+            </p>
+            <h1 className="mt-5 max-w-3xl text-5xl font-semibold leading-[1.02] text-ink sm:text-7xl">
+              Bring young people offline and into your space.
+            </h1>
+            <p className="mt-5 max-w-2xl text-lg leading-8 text-muted">
+              LoopOut helps cafes, restaurants and study spaces attract young customers when they finish their social media time.
+            </p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <Button icon={Store} onClick={() => navigate('/partners/suggest')}>
+                Become a LoopOut Partner
+              </Button>
+              <Button variant="secondary" icon={ShieldCheck} onClick={() => navigate('/login')}>
+                Create partner account
+              </Button>
+            </div>
+          </div>
+          <div className="rounded-lg border border-line bg-white p-5 shadow-soft">
+            <div className="mx-auto max-w-xs">
+              <LoopOutQrCode value="LOOPOUTPARTNER" />
+            </div>
+            <h2 className="mt-5 text-2xl font-semibold text-ink">Rewards that require real offline time.</h2>
+            <p className="mt-2 text-sm leading-6 text-muted">
+              Staff scan a temporary pass. LoopOut confirms whether it is active, unused and linked to the right partner.
+            </p>
+          </div>
+        </section>
+
+        <section className="grid gap-4 py-10 md:grid-cols-3">
+          {[
+            ['1', 'Create a reward', 'Choose a discount, free item or group offer.'],
+            ['2', 'Appear as verified', 'Users see your place after their timer ends.'],
+            ['3', 'Scan the pass', 'Staff validate and redeem each QR reward once.'],
+          ].map(([step, title, text]) => (
+            <div className="rounded-lg border border-line bg-white p-5 shadow-sm" key={step}>
+              <span className="grid h-10 w-10 place-items-center rounded-full bg-soft text-sm font-semibold text-deep">{step}</span>
+              <h2 className="mt-5 text-xl font-semibold text-ink">{title}</h2>
+              <p className="mt-2 text-sm leading-6 text-muted">{text}</p>
+            </div>
+          ))}
+        </section>
+
+        <section className="grid gap-4 py-10 lg:grid-cols-2">
+          <div className="rounded-lg border border-line bg-white p-6 shadow-sm">
+            <h2 className="text-2xl font-semibold text-ink">Benefits</h2>
+            <div className="mt-4 space-y-2">
+              {benefits.map((benefit) => (
+                <div className="flex gap-2 rounded-lg bg-canvas p-3" key={benefit}>
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <p className="text-sm leading-5 text-muted">{benefit}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-lg border border-line bg-white p-6 shadow-sm">
+            <h2 className="text-2xl font-semibold text-ink">Pricing model</h2>
+            <div className="mt-4 grid gap-2">
+              {['Free pilot', 'Pay per redemption', 'Monthly partner subscription', 'Featured listing'].map((item) => (
+                <div className="rounded-lg bg-soft p-3 text-sm font-semibold text-deep" key={item}>
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function PartnerApplicationPage({ navigate, onSubmit }) {
+  const [form, setForm] = useState({
+    contactName: '',
+    businessName: '',
+    email: '',
+    city: 'Lisbon',
+    area: '',
+    rewardIdea: '10% off coffee',
+    note: '',
+  });
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  const submit = async (event) => {
+    event.preventDefault();
+    setMessage('');
+    setError('');
+    setSubmitting(true);
+    try {
+      await onSubmit?.(form);
+      setMessage('Partner application saved for review.');
+    } catch (err) {
+      setError(getReadableSupabaseError(err) || 'Could not save partner application.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-canvas px-4 py-[calc(env(safe-area-inset-top)+24px)] text-ink">
+      <main className="mx-auto max-w-md">
+        <PageHeader title="Become a partner" subtitle="Create a phone-free reward." navigate={navigate} backTo="/partners" />
+        <form className="rounded-lg border border-line bg-white p-5 shadow-soft" onSubmit={submit}>
+          <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">Partner application</p>
+          <h1 className="mt-2 text-3xl font-semibold leading-tight text-ink">Tell us about your place.</h1>
+          <p className="mt-2 text-sm leading-6 text-muted">
+            This creates a partner lead for admin review. Verified partners can scan QR passes and run rewards.
+          </p>
+          <div className="mt-5 space-y-4">
+            <Field label="Contact name" value={form.contactName} onChange={(value) => update('contactName', value)} />
+            <Field label="Business name" value={form.businessName} onChange={(value) => update('businessName', value)} />
+            <Field label="Email" type="email" value={form.email} onChange={(value) => update('email', value)} />
+            <Field label="City" value={form.city} onChange={(value) => update('city', value)} />
+            <Field label="Area" value={form.area} onChange={(value) => update('area', value)} />
+            <Field label="Reward idea" value={form.rewardIdea} onChange={(value) => update('rewardIdea', value)} />
+            <label className="block">
+              <span className="text-sm font-medium text-ink">Notes</span>
+              <textarea
+                className="mt-2 min-h-24 w-full resize-none rounded-lg border border-line bg-canvas px-3 py-3 text-base text-ink outline-none focus:border-primary"
+                value={form.note}
+                onChange={(event) => update('note', event.target.value)}
+              />
+            </label>
+          </div>
+          {message ? <p className="mt-4 rounded-lg bg-[#E8F8EF] p-3 text-sm text-[#137A3D]">{message}</p> : null}
+          {error ? <p className="mt-4 rounded-lg bg-[#FFF1F0] p-3 text-sm text-[#B42318]">{error}</p> : null}
+          <Button className="mt-5 w-full" icon={ArrowRight} type="submit" disabled={submitting}>
+            {submitting ? 'Submitting...' : 'Submit partner request'}
+          </Button>
+        </form>
+      </main>
+    </div>
+  );
+}
+
+function AdminPage({ navigate, passes = [], partnerLeads = [], scanEvents = [] }) {
+  const activePasses = passes.filter((pass) => getPassStatus(pass) === 'active').length;
+  const redeemedPasses = passes.filter((pass) => pass.status === 'redeemed').length;
+  const verifiedPartners = partnerPlaces.filter((place) => place.isVerified).length;
+
+  return (
+    <>
+      <PageHeader title="Admin" subtitle="LoopOut operations overview." navigate={navigate} backTo="/dashboard" />
+      <section className="rounded-lg bg-deep p-5 text-white shadow-soft">
+        <p className="text-sm font-semibold uppercase tracking-[0.12em] text-white/60">Internal dashboard</p>
+        <h1 className="mt-2 text-3xl font-semibold leading-tight">Approve, verify and monitor rewards.</h1>
+        <p className="mt-3 text-sm leading-6 text-white/70">
+          This admin surface is ready for roles, partner verification and abuse review.
+        </p>
+      </section>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <StatCard label="Active passes" value={activePasses} icon={WalletCards} />
+        <StatCard label="QR redemptions" value={redeemedPasses} icon={QrCode} />
+        <StatCard label="Partner places" value={verifiedPartners} icon={Store} />
+        <StatCard label="Scan events" value={scanEvents.length} icon={ScanLine} />
+      </div>
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-ink">Partner applications</h2>
+        {partnerLeads.length ? (
+          <div className="mt-3 space-y-2">
+            {partnerLeads.map((lead) => (
+              <div className="rounded-lg bg-canvas p-3" key={lead.id}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-ink">{lead.businessName}</p>
+                    <p className="text-xs text-muted">{lead.area || lead.city} · {lead.rewardIdea}</p>
+                  </div>
+                  <span className="rounded-full bg-soft px-2.5 py-1 text-xs font-semibold text-deep">pending</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 rounded-lg bg-canvas p-3 text-sm leading-6 text-muted">
+            No local partner applications yet.
+          </p>
+        )}
+      </section>
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-ink">Admin actions</h2>
+        <div className="mt-3 grid gap-2">
+          {[
+            'Approve partner applications',
+            'Verify places',
+            'Review reward campaigns',
+            'Disable suspicious passes',
+            'Feature partner places',
+            'Export analytics CSV',
+          ].map((item) => (
+            <div className="rounded-lg bg-canvas p-3 text-sm font-semibold text-ink" key={item}>
+              {item}
+            </div>
+          ))}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function PlacesPage({
+  navigate,
+  openInvite,
+  places = lisbonPlaces,
+  loading,
+  defaultCategory = 'All',
+  title = 'Phone-free places in Lisbon',
+  subtitle = 'Verified rewards and calm public places.',
+}) {
+  const [category, setCategory] = useState(defaultCategory);
   const [userLocation, setUserLocation] = useState(null);
   const [locationStatus, setLocationStatus] = useState('idle');
-  const categories = ['All', 'Public gardens', 'Parks & gardens', 'Libraries', 'Study spots', 'Cafes', 'Cultural spaces'];
+  const categories = ['All', 'Verified Partners', 'Cafes', 'Restaurants', 'Study Spaces', 'Gardens', 'Libraries', 'Parks'];
+  const loopoutPlaces = useMemo(() => buildLoopOutPlaces(places), [places]);
 
   const requestLocation = useCallback(() => {
     if (!navigator.geolocation) {
@@ -2745,9 +3838,9 @@ function PlacesPage({ navigate, openInvite, places = lisbonPlaces, loading }) {
   }, [requestLocation]);
 
   const placesByDistance = useMemo(() => {
-    if (!userLocation) return places;
+    if (!userLocation) return loopoutPlaces;
 
-    return places
+    return loopoutPlaces
       .map((place) => ({
         ...place,
         distanceKm: place.coordinates ? getDistanceKm(userLocation, place.coordinates) : null,
@@ -2757,11 +3850,12 @@ function PlacesPage({ navigate, openInvite, places = lisbonPlaces, loading }) {
         const secondDistance = second.distanceKm ?? Number.POSITIVE_INFINITY;
         return firstDistance - secondDistance;
       });
-  }, [places, userLocation]);
+  }, [loopoutPlaces, userLocation]);
 
-  const visiblePlaces =
-    category === 'All' ? placesByDistance : placesByDistance.filter((place) => place.type === category);
+  const visiblePlaces = placesByDistance.filter((place) => matchesPlaceCategory(place, category));
   const topPlace = visiblePlaces[0];
+  const verifiedCount = loopoutPlaces.filter((place) => place.isVerified).length;
+  const suggestedCount = loopoutPlaces.filter((place) => !place.isPartner).length;
 
   const locationCopy = {
     idle: 'Preparing nearby places.',
@@ -2774,7 +3868,28 @@ function PlacesPage({ navigate, openInvite, places = lisbonPlaces, loading }) {
 
   return (
     <>
-      <PageHeader title="Phone-free places in Lisbon" subtitle="Meet, study, walk or talk without the scroll." navigate={navigate} backTo="/dashboard" />
+      <PageHeader title={title} subtitle={subtitle} navigate={navigate} backTo="/dashboard" />
+      <section className="mb-4 rounded-lg border border-line bg-white p-5 shadow-soft">
+        <div className="flex items-start gap-3">
+          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-soft text-primary">
+            <WalletCards className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">LoopOut Pass places</p>
+            <h1 className="mt-1 text-2xl font-semibold leading-tight text-ink">Rewards where they are verified. Suggestions where they are public.</h1>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <div className="rounded-lg bg-soft p-3">
+                <p className="text-xl font-semibold text-ink">{verifiedCount}</p>
+                <p className="text-xs text-muted">verified partners</p>
+              </div>
+              <div className="rounded-lg bg-canvas p-3">
+                <p className="text-xl font-semibold text-ink">{suggestedCount}</p>
+                <p className="text-xs text-muted">suggested spots</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
       <div className="mb-4 rounded-lg border border-line bg-white p-4 shadow-sm">
         <div className="flex items-start gap-3">
           <div className="grid h-11 w-11 place-items-center rounded-full bg-soft text-primary">
@@ -2823,9 +3938,16 @@ function PlacesPage({ navigate, openInvite, places = lisbonPlaces, loading }) {
       {visiblePlaces.length ? (
         <>
           <PhoneFreeMap places={visiblePlaces} userLocation={userLocation} />
+          {category === 'Verified Partners' || category === 'All' ? (
+            <section className="mb-4 grid gap-3">
+              {rewardCampaigns.slice(0, 3).map((campaign) => (
+                <RewardMiniCard campaign={campaign} navigate={navigate} key={campaign.id} />
+              ))}
+            </section>
+          ) : null}
           <div className="space-y-3">
             {visiblePlaces.map((place) => (
-              <PlaceCard place={place} key={place.id} onInvite={openInvite} />
+              <PlaceCard place={place} key={`${place.sourceType}-${place.id}`} onInvite={openInvite} navigate={navigate} />
             ))}
           </div>
         </>
@@ -3499,6 +4621,9 @@ export default function App() {
     lockDurationMinutes: defaultSettings.defaultLock,
   });
   const [invites, setInvites] = useLocalStorage(storageKeys.invites, []);
+  const [passes, setPasses] = useLocalStorage(storageKeys.passes, []);
+  const [partnerLeads, setPartnerLeads] = useLocalStorage(storageKeys.partnerLeads, []);
+  const [scanEvents, setScanEvents] = useLocalStorage(storageKeys.scanEvents, []);
   const [screenTimeLogs, setScreenTimeLogs] = useLocalStorage(storageKeys.screenTimeLogs, []);
   const [, setOnboarded] = useLocalStorage(storageKeys.onboarded, false);
   const [authUser, setAuthUser] = useState(null);
@@ -3522,6 +4647,9 @@ export default function App() {
   const activeStats = progressStats || fallbackProgressSnapshot(session, activeInvites, screenTimeLogs);
   const requestedAppId = searchParams.get('app');
   const currentRoute = `${path}${search}`;
+  const activePass = getActivePassForSession(passes, session, now);
+  const offlineFriendCount = activeFriends.filter((friend) => friend.isOffline || friend.available).length;
+  const allInvitePlaces = useMemo(() => buildLoopOutPlaces(activePlaces), [activePlaces]);
 
   useEffect(() => {
     if (path !== '/session/purpose' || !isKnownAppId(requestedAppId)) return;
@@ -3690,6 +4818,36 @@ export default function App() {
     }
   }, [navigate, now, path, persistSessionComplete, persistSessionLock, session, setSession]);
 
+  useEffect(() => {
+    if (!isRemote || !authUser || session?.status !== 'locked') return;
+
+    setPasses((current) => {
+      if (getActivePassForSession(current, session, Date.now())) return current;
+      if (getDailyPassCount(current, authUser.id) >= 3) return current;
+
+      return [
+        createLoopOutPass({
+          session,
+          userId: authUser.id,
+          campaignId: rewardCampaigns[0].id,
+          groupSize: Math.min(3, 1 + offlineFriendCount),
+          displayName: profile.name?.split(' ')[0] || 'LoopOut user',
+        }),
+        ...current,
+      ];
+    });
+  }, [
+    authUser,
+    isRemote,
+    offlineFriendCount,
+    profile.name,
+    session?.id,
+    session?.lockEndsAt,
+    session?.remoteId,
+    session?.status,
+    setPasses,
+  ]);
+
   const startSession = async (nextDraft) => {
     const startedAt = Date.now();
     const app = getAppById(nextDraft.appId);
@@ -3840,8 +4998,175 @@ export default function App() {
     await loadRemoteData(authUser);
   };
 
+  const ensureLoopOutPass = useCallback(
+    (campaignId = rewardCampaigns[0].id) => {
+      if (!isRemote || !authUser) {
+        return { error: 'Sign in to generate a LoopOut Pass.' };
+      }
+      if (!session || session.status !== 'locked') {
+        return { error: 'Finish a timer first. Passes only work during an active lock.' };
+      }
+
+      const groupSize = Math.min(3, 1 + offlineFriendCount);
+      const existing = getActivePassForSession(passes, session, Date.now());
+
+      if (existing && getPassStatus(existing, Date.now()) === 'active') {
+        const updatedPass = updatePassReward(existing, campaignId, groupSize);
+        setPasses((current) => current.map((item) => (item.id === updatedPass.id ? updatedPass : item)));
+        return { pass: updatedPass };
+      }
+
+      if (getDailyPassCount(passes, authUser.id) >= 3) {
+        return { error: 'Daily reward limit reached. Try again tomorrow.' };
+      }
+
+      const nextPass = createLoopOutPass({
+        session,
+        userId: authUser.id,
+        campaignId,
+        groupSize,
+        displayName: profile.name?.split(' ')[0] || 'LoopOut user',
+      });
+      setPasses((current) => [nextPass, ...current]);
+      return { pass: nextPass };
+    },
+    [authUser, isRemote, offlineFriendCount, passes, profile.name, session, setPasses]
+  );
+
+  const submitPartnerLead = useCallback(
+    async (lead) => {
+      let savedLead = null;
+      if (isSupabaseConfigured) {
+        savedLead = await createPartnerLeadRecord(lead);
+      }
+
+      setPartnerLeads((current) => [
+        {
+          id: savedLead?.id || crypto.randomUUID(),
+          ...lead,
+          status: savedLead?.status || 'pending',
+          createdAt: savedLead?.created_at || new Date().toISOString(),
+        },
+        ...current,
+      ]);
+    },
+    [setPartnerLeads]
+  );
+
+  const validatePassCode = useCallback(
+    (value, selectedPartnerId) => {
+      const cleanCode = normalizePublicCode(value);
+      const foundPass = passes.find((item) => normalizePublicCode(item.publicCode) === cleanCode);
+
+      if (!cleanCode || !foundPass) {
+        setScanEvents((current) => [
+          {
+            id: crypto.randomUUID(),
+            publicCode: cleanCode,
+            partnerPlaceId: selectedPartnerId,
+            result: 'invalid',
+            scannedAt: new Date().toISOString(),
+          },
+          ...current,
+        ]);
+        return {
+          status: 'invalid',
+          title: 'Pass not found',
+          message: 'Check the code under the QR and try again.',
+        };
+      }
+
+      const status = getPassStatus(foundPass, Date.now());
+      const campaign = getRewardCampaignById(foundPass.rewardCampaignId);
+      const partner = getPartnerPlaceById(foundPass.partnerPlaceId);
+
+      if (status === 'redeemed') {
+        return {
+          status: 'redeemed',
+          title: 'Already redeemed',
+          message: 'This LoopOut Pass has already been used.',
+          pass: foundPass,
+          campaign,
+          partner,
+        };
+      }
+
+      if (status === 'expired') {
+        return {
+          status: 'expired',
+          title: 'Pass expired',
+          message: 'The active lock window has ended, so this reward can no longer be redeemed.',
+          pass: foundPass,
+          campaign,
+          partner,
+        };
+      }
+
+      if (selectedPartnerId && foundPass.partnerPlaceId !== selectedPartnerId) {
+        return {
+          status: 'wrong_partner',
+          title: 'Wrong partner',
+          message: `This pass is for ${partner?.name || 'another partner'}.`,
+          pass: foundPass,
+          campaign,
+          partner,
+        };
+      }
+
+      return {
+        status: 'valid',
+        title: 'Valid LoopOut Pass',
+        message: 'The pass is active, unused and linked to this partner.',
+        pass: foundPass,
+        campaign,
+        partner,
+      };
+    },
+    [passes, setScanEvents]
+  );
+
+  const redeemPassCode = useCallback(
+    (value, selectedPartnerId) => {
+      const validation = validatePassCode(value, selectedPartnerId);
+      const result = validation.status === 'valid' ? 'redeemed' : validation.status;
+
+      setScanEvents((current) => [
+        {
+          id: crypto.randomUUID(),
+          publicCode: normalizePublicCode(value),
+          partnerPlaceId: selectedPartnerId,
+          passId: validation.pass?.id || null,
+          result,
+          scannedAt: new Date().toISOString(),
+        },
+        ...current,
+      ]);
+
+      if (validation.status !== 'valid') return validation;
+
+      const redeemedPass = {
+        ...validation.pass,
+        status: 'redeemed',
+        redeemedAt: new Date().toISOString(),
+        redeemedPartnerPlaceId: selectedPartnerId,
+      };
+      setPasses((current) => current.map((item) => (item.id === redeemedPass.id ? redeemedPass : item)));
+
+      return {
+        ...validation,
+        status: 'redeemed',
+        title: 'Reward redeemed',
+        message: 'This pass is now used and cannot be redeemed again.',
+        pass: redeemedPass,
+      };
+    },
+    [setPasses, setScanEvents, validatePassCode]
+  );
+
   const publicPage = (() => {
     if (path === '/') return <Landing navigate={navigate} />;
+    if (path === '/partners') return <PartnerLandingPage navigate={navigate} />;
+    if (path === '/partners/suggest') return <PartnerApplicationPage navigate={navigate} onSubmit={submitPartnerLead} />;
     if (path === '/onboarding') return <Onboarding navigate={navigate} setOnboarded={setOnboarded} />;
     if (path === '/login') {
       if (!isSupabaseConfigured) return <BackendRequiredScreen navigate={navigate} />;
@@ -3890,6 +5215,8 @@ export default function App() {
     }
     if (path === '/setup-iphone') return <SetupPage navigate={navigate} />;
 
+    const rewardMatch = path.match(/^\/rewards\/([^/]+)$/);
+
     const shellPage = (() => {
       if (path === '/dashboard') {
         return (
@@ -3903,6 +5230,7 @@ export default function App() {
             invites={activeInvites}
             loading={dataLoading}
             isRemote={isRemote}
+            pass={activePass}
           />
         );
       }
@@ -3940,7 +5268,65 @@ export default function App() {
         );
       }
       if (path === '/session/locked') {
-        return <LockedPage navigate={navigate} session={session} now={now} />;
+        return <LockedPage navigate={navigate} session={session} now={now} pass={activePass} onGeneratePass={ensureLoopOutPass} />;
+      }
+      if (path === '/pass') {
+        return (
+          <LoopOutPassPage
+            navigate={navigate}
+            pass={activePass}
+            session={session}
+            now={now}
+            friends={activeFriends}
+            recentPasses={passes}
+            onGeneratePass={ensureLoopOutPass}
+          />
+        );
+      }
+      if (path === '/rewards') {
+        return (
+          <PlacesPage
+            key="rewards"
+            navigate={navigate}
+            openInvite={openInvite}
+            places={activePlaces}
+            loading={dataLoading}
+            defaultCategory="Verified Partners"
+            title="LoopOut Pass places"
+            subtitle="Verified partner rewards near you."
+          />
+        );
+      }
+      if (rewardMatch) {
+        return (
+          <RewardDetailPage
+            navigate={navigate}
+            rewardId={decodeURIComponent(rewardMatch[1])}
+            session={session}
+            pass={activePass}
+            now={now}
+            friends={activeFriends}
+            onGeneratePass={ensureLoopOutPass}
+            openInvite={openInvite}
+          />
+        );
+      }
+      if (path === '/partner/scan') {
+        return (
+          <PartnerScannerPage
+            navigate={navigate}
+            initialCode={searchParams.get('code') || ''}
+            passes={passes}
+            validatePassCode={validatePassCode}
+            redeemPassCode={redeemPassCode}
+          />
+        );
+      }
+      if (path === '/partner/dashboard') {
+        return <PartnerDashboardPage navigate={navigate} passes={passes} scanEvents={scanEvents} />;
+      }
+      if (path === '/admin') {
+        return <AdminPage navigate={navigate} passes={passes} partnerLeads={partnerLeads} scanEvents={scanEvents} />;
       }
       if (path === '/friends') {
         return (
@@ -3951,7 +5337,7 @@ export default function App() {
             friends={activeFriends}
             requests={friendRequests}
             invites={activeInvites}
-            places={activePlaces}
+            places={allInvitePlaces}
             currentUserId={authUser?.id}
             isRemote={isRemote}
             loading={dataLoading}
@@ -3962,7 +5348,7 @@ export default function App() {
           />
         );
       }
-      if (path === '/places') return <PlacesPage navigate={navigate} openInvite={openInvite} places={activePlaces} loading={dataLoading} />;
+      if (path === '/places') return <PlacesPage key="places" navigate={navigate} openInvite={openInvite} places={activePlaces} loading={dataLoading} />;
       if (path === '/progress') {
         return (
           <ProgressPage
@@ -4012,6 +5398,7 @@ export default function App() {
           invites={activeInvites}
           loading={dataLoading}
           isRemote={isRemote}
+          pass={activePass}
         />
       );
     })();
@@ -4036,7 +5423,7 @@ export default function App() {
           friend={inviteModal.friend}
           place={inviteModal.place}
           friends={activeFriends}
-          places={activePlaces}
+          places={allInvitePlaces}
           onClose={() => setInviteModal(null)}
           onSend={sendInvite}
           sending={inviteSending}

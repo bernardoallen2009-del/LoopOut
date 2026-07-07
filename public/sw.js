@@ -1,4 +1,4 @@
-const CACHE_NAME = 'loopout-v6';
+const CACHE_NAME = 'loopout-v7';
 const APP_SHELL = [
   '/',
   '/dashboard',
@@ -8,8 +8,15 @@ const APP_SHELL = [
   '/session/timer',
   '/session/active',
   '/session/locked',
+  '/pass',
   '/friends',
   '/places',
+  '/rewards',
+  '/partner/scan',
+  '/partner/dashboard',
+  '/partners',
+  '/partners/suggest',
+  '/admin',
   '/progress',
   '/screen-time-import',
   '/setup-iphone',

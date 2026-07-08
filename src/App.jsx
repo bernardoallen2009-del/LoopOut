@@ -2346,7 +2346,7 @@ function BusinessDashboardPage({ navigate, passes = [], scanEvents = [], role = 
 
   return (
     <>
-      <PageHeader title="Business demo" subtitle="QR rewards, events and partner analytics." navigate={navigate} backTo="/dashboard" />
+      <PageHeader title="Business demo" subtitle="QR rewards, events and partner analytics." navigate={navigate} backTo="/business" />
       <DemoModeSwitcher role={role} navigate={navigate} onStartDemo={onStartDemo} />
       <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
         <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">LoopOut Business</p>
@@ -2361,23 +2361,6 @@ function BusinessDashboardPage({ navigate, passes = [], scanEvents = [], role = 
           <Button variant="secondary" icon={Calendar} onClick={() => navigate('/business/events')}>
             Events
           </Button>
-        </div>
-      </section>
-      <section className="mt-4 rounded-lg border border-line bg-white p-4 shadow-sm">
-        <p className="text-sm font-semibold text-ink">Business navigation</p>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {[
-            ['Overview', '/business/dashboard'],
-            ['Places', '/places'],
-            ['Rewards', '/rewards'],
-            ['QR Scanner', '/partner/scan'],
-            ['Events', '/business/events'],
-            ['Settings', '/settings'],
-          ].map(([label, href]) => (
-            <button type="button" className="rounded-lg bg-canvas p-3 text-left text-sm font-semibold text-deep" key={label} onClick={() => navigate(href)}>
-              {label}
-            </button>
-          ))}
         </div>
       </section>
       <div className="mt-4 grid grid-cols-2 gap-3">
@@ -2960,7 +2943,7 @@ function AppShell({ children, navigate, path, session, role = 'personal' }) {
   const sessionRoute =
     session?.status === 'active' ? '/session/active' : session?.status === 'locked' ? '/session/locked' : '/session/select-app';
 
-  const navItems = [
+  const personalNavItems = [
     { label: 'Home', path: '/dashboard', icon: Home },
     { label: 'Session', path: sessionRoute, match: '/session', icon: Timer },
     { label: 'Friends', path: '/friends', icon: Users },
@@ -2968,12 +2951,23 @@ function AppShell({ children, navigate, path, session, role = 'personal' }) {
     { label: 'Pass', path: '/pass', icon: WalletCards },
     { label: 'Profile', path: '/settings', icon: CircleUserRound },
   ];
+  const businessNavItems = [
+    { label: 'Home', path: '/business/dashboard', icon: Store },
+    { label: 'Scan', path: '/partner/scan', icon: QrCode },
+    { label: 'Events', path: '/business/events', icon: Calendar },
+    { label: 'Stats', path: '/partner/dashboard', icon: TrendingUp },
+    { label: 'Profile', path: '/settings', icon: CircleUserRound },
+  ];
+  const navItems = role === 'business' ? businessNavItems : personalNavItems;
 
   return (
     <div className="min-h-screen bg-canvas text-ink">
       <main className="mx-auto max-w-md px-4 pb-28">{children}</main>
       <nav className="fixed inset-x-0 bottom-0 z-40 px-3 pb-[calc(env(safe-area-inset-bottom)+10px)]">
-        <div className="mx-auto grid max-w-md grid-cols-6 gap-1 rounded-[28px] border border-white/70 bg-white/50 p-2 shadow-lift backdrop-blur-2xl">
+        <div
+          className="mx-auto grid max-w-md gap-1 rounded-[28px] border border-white/70 bg-white/50 p-2 shadow-lift backdrop-blur-2xl"
+          style={{ gridTemplateColumns: `repeat(${navItems.length}, minmax(0, 1fr))` }}
+        >
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = Array.isArray(item.match)
@@ -3031,14 +3025,30 @@ function Dashboard({ navigate, profile, session, now, stats, friends = [], invit
     ['Lock minutes', loading ? '...' : formatMinutes(today.lockMinutes ?? 0)],
     ['Friends offline', loading ? '...' : String(offlineFriends)],
   ];
+  const primarySessionAction = active
+    ? {
+        title: `${currentApp.name} session is running`,
+        text: session.purpose ? `Stay intentional: ${session.purpose}` : 'Keep your timer visible and finish the session on purpose.',
+        button: 'Open timer',
+        icon: Timer,
+        onClick: () => navigate('/session/active'),
+      }
+    : locked
+      ? {
+          title: `${currentApp.name} is blocked`,
+          text: `Use the break until ${formatTime(session.lockEndsAt)}. You can reopen the lock screen from here.`,
+          button: 'Open lock screen',
+          icon: LockKeyhole,
+          onClick: () => navigate('/session/locked'),
+        }
+      : {
+          title: 'Start a LoopOut session',
+          text: 'Choose an app, write your purpose and set a clear limit before opening it.',
+          button: 'Start',
+          icon: Play,
+          onClick: () => navigate('/session/select-app'),
+        };
   const nextActions = [
-    {
-      title: active || locked ? 'Open current session' : 'Start a LoopOut session',
-      text: active || locked ? `${currentApp.name} is still protected.` : 'Choose an app and write your purpose first.',
-      icon: active || locked ? LockKeyhole : Play,
-      onClick: () => navigate(active ? '/session/active' : locked ? '/session/locked' : '/session/select-app'),
-      primary: true,
-    },
     {
       title: pendingInvites ? `${pendingInvites} invite${pendingInvites === 1 ? '' : 's'} waiting` : 'Plan with friends',
       text: pendingInvites ? 'Review meetup invites from friends.' : 'See who is offline and suggest a place.',
@@ -3053,13 +3063,14 @@ function Dashboard({ navigate, profile, session, now, stats, friends = [], invit
     },
   ];
   if (locked && pass) {
-    nextActions.splice(1, 0, {
+    nextActions.unshift({
       title: 'Show your LoopOut Pass',
       text: `${pass.rewardSnapshot?.summary || 'Reward'} at ${pass.rewardSnapshot?.partnerName || 'a partner place'}.`,
       icon: WalletCards,
       onClick: () => navigate('/pass'),
     });
   }
+  const PrimarySessionIcon = primarySessionAction.icon;
 
   return (
     <>
@@ -3096,15 +3107,15 @@ function Dashboard({ navigate, profile, session, now, stats, friends = [], invit
       <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-soft">
         <div className="flex items-start gap-4">
           <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-soft text-primary">
-            <Play className="h-5 w-5" />
+            <PrimarySessionIcon className="h-5 w-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 className="text-xl font-semibold text-ink">Start a LoopOut session</h2>
-            <p className="mt-2 text-sm leading-6 text-muted">Choose an app, write your purpose and set your limit.</p>
+            <h2 className="text-xl font-semibold text-ink">{primarySessionAction.title}</h2>
+            <p className="mt-2 text-sm leading-6 text-muted">{primarySessionAction.text}</p>
           </div>
         </div>
-        <Button className="mt-5 w-full" icon={ArrowRight} onClick={() => navigate('/session/select-app')}>
-          Start
+        <Button className="mt-5 w-full" icon={ArrowRight} onClick={primarySessionAction.onClick}>
+          {primarySessionAction.button}
         </Button>
       </section>
 
@@ -4460,7 +4471,7 @@ function PartnerDashboardPage({ navigate, passes = [], scanEvents = [] }) {
 
   return (
     <>
-      <PageHeader title="Partner dashboard" subtitle="Track QR rewards and foot traffic." navigate={navigate} backTo="/dashboard" />
+      <PageHeader title="Partner dashboard" subtitle="Track QR rewards and foot traffic." navigate={navigate} backTo="/business/dashboard" />
       <section className="rounded-lg bg-deep p-5 text-white shadow-soft">
         <p className="text-sm font-semibold uppercase tracking-[0.12em] text-white/60">Partner MVP</p>
         <h1 className="mt-2 text-3xl font-semibold leading-tight">Turn offline moments into visits.</h1>
@@ -5628,6 +5639,18 @@ export default function App() {
     }
     if (activeDemoRole === 'teacher' && path !== '/education/dashboard') {
       navigate('/education/dashboard');
+    }
+    if (activeDemoRole === 'business') {
+      const personalOnlyPath =
+        path === '/dashboard' ||
+        path === '/friends' ||
+        path === '/pass' ||
+        path === '/progress' ||
+        path === '/screen-time-import' ||
+        path.startsWith('/session');
+      if (personalOnlyPath) {
+        navigate('/business/dashboard');
+      }
     }
   }, [activeDemoRole, isDemo, navigate, path]);
 

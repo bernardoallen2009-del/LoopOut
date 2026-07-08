@@ -26,6 +26,7 @@ import {
   Play,
   Plus,
   QrCode,
+  ScanLine,
   Search,
   Settings,
   ShieldCheck,
@@ -75,11 +76,20 @@ import {
 } from './lib/supabase';
 import {
   appOptions,
+  demoBusinessMetrics,
+  demoContactMatches,
+  demoEducation,
+  demoEvents,
+  demoFriends,
+  demoNotifications,
+  demoProfile,
+  demoProgressStats,
   groupRewardTiers,
   lisbonPlaces,
   lockDurations,
   onboardingSlides,
   partnerPlaces,
+  pricingPlans,
   quickTimers,
   rewardCampaigns,
   setupSteps,
@@ -96,6 +106,10 @@ const storageKeys = {
   scanEvents: 'loopout.scanEvents',
   screenTimeLogs: 'loopout.screenTimeLogs',
   onboarded: 'loopout.onboarded',
+  demoMode: 'loopout.demoMode',
+  demoRole: 'loopout.demoRole',
+  demoFriends: 'loopout.demoFriends',
+  demoFriendRequests: 'loopout.demoFriendRequests',
 };
 
 const defaultProfile = {
@@ -447,6 +461,70 @@ function createLoopOutPass({ session, userId, campaignId, groupSize = 1, display
     userDisplayName: displayName || `LoopOut user ${String(userId || '').slice(0, 4)}`,
     rewardSnapshot: getPassRewardSnapshot(campaign, partner, groupSize),
   };
+}
+
+function createDemoLockedSession() {
+  const nowMs = Date.now();
+  return {
+    id: 'demo-session-instagram-lock',
+    appId: 'instagram',
+    appName: 'Instagram',
+    purpose: 'Reply to one message',
+    timerMinutes: 10,
+    lockDurationMinutes: 30,
+    startedAt: nowMs - minutesToMs(14),
+    endsAt: nowMs - minutesToMs(4),
+    endedAt: nowMs - minutesToMs(4),
+    lockStartedAt: nowMs - minutesToMs(4),
+    lockEndsAt: nowMs + minutesToMs(24),
+    status: 'locked',
+  };
+}
+
+function createDemoPass(session) {
+  return createLoopOutPass({
+    session,
+    userId: demoProfile.id,
+    campaignId: rewardCampaigns[0].id,
+    groupSize: 3,
+    displayName: 'Bernardo',
+  });
+}
+
+function createDemoInvites() {
+  const acceptedTime = new Date(Date.now() + minutesToMs(75)).toISOString();
+  const pendingTime = new Date(Date.now() + minutesToMs(30)).toISOString();
+  const sofia = demoFriends[0];
+  const miguel = demoFriends[3];
+  const place = partnerPlaces[1];
+  const secondPlace = partnerPlaces[3];
+
+  return [
+    {
+      id: 'demo-invite-accepted-sofia',
+      sender_id: demoProfile.id,
+      receiver_id: sofia.id,
+      receiver: { id: sofia.id, full_name: sofia.name, username: sofia.username, city: 'Lisbon', area: sofia.area },
+      place_id: place.id,
+      place,
+      suggested_time: acceptedTime,
+      message: 'Phone-free coffee after this LoopOut lock?',
+      status: 'accepted',
+      createdAt: Date.now() - minutesToMs(12),
+    },
+    {
+      id: 'demo-invite-pending-miguel',
+      sender_id: miguel.id,
+      receiver_id: demoProfile.id,
+      sender: { id: miguel.id, full_name: miguel.name, username: miguel.username, city: 'Lisbon', area: miguel.area },
+      place_id: secondPlace.id,
+      place: secondPlace,
+      suggested_time: pendingTime,
+      message: 'Want to walk in Belem while the lock is active?',
+      status: 'pending',
+      createdAt: Date.now() - minutesToMs(5),
+    },
+  ];
 }
 
 function getQrCell(value, row, column) {
@@ -963,6 +1041,9 @@ function matchesPlaceCategory(place, category) {
   if (category === 'Gardens') return ['Public gardens', 'Parks & gardens'].includes(place.type);
   if (category === 'Libraries') return place.type === 'Libraries';
   if (category === 'Parks') return place.type === 'Parks & gardens';
+  if (category === 'Cultural') return place.type === 'Cultural spaces';
+  if (category === 'Universities') return /university|campus|campo grande/i.test(`${place.type} ${place.area} ${place.description}`);
+  if (category === 'Schools') return /school|student|study/i.test(`${place.type} ${place.area} ${place.description}`);
   return place.type === category;
 }
 
@@ -1674,13 +1755,13 @@ function HeroPhone() {
   );
 }
 
-function Landing({ navigate }) {
+function Landing({ navigate, onDemoStart }) {
   const marketingNav = [
-    ['Product', 'product'],
-    ['How it works', 'how'],
-    ['Places', 'places'],
-    ['Partners', 'partners'],
-    ['Pricing', 'pricing'],
+    ['Personal', '/platform'],
+    ['Business', '/business'],
+    ['Education', '/education'],
+    ['Places', '#places'],
+    ['Pricing', '/pricing'],
   ];
   const scrollToSection = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
@@ -1695,7 +1776,7 @@ function Landing({ navigate }) {
                 type="button"
                 className="rounded-full px-4 py-2 text-sm font-semibold text-muted transition hover:bg-white/55 hover:text-ink"
                 key={id}
-                onClick={() => (id === 'partners' ? navigate('/partners') : scrollToSection(id))}
+                onClick={() => (id.startsWith('#') ? scrollToSection(id.slice(1)) : navigate(id))}
               >
                 {label}
               </button>
@@ -1705,7 +1786,7 @@ function Landing({ navigate }) {
             <Button variant="ghost" className="hidden px-4 sm:inline-flex" onClick={() => navigate('/login')}>
               Login
             </Button>
-            <Button className="px-4" onClick={() => navigate('/onboarding')}>
+            <Button className="px-4" onClick={() => onDemoStart?.('personal')}>
               Start LoopOut
             </Button>
           </div>
@@ -1716,20 +1797,20 @@ function Landing({ navigate }) {
         <div className="mx-auto grid min-h-[88vh] max-w-6xl items-center gap-10 px-4 pb-14 pt-28 lg:min-h-[92vh] lg:grid-cols-[minmax(0,1fr)_380px] lg:pt-24">
           <div className="animate-in max-w-3xl text-center lg:text-left">
             <p className="mx-auto inline-flex rounded-full border border-white/70 bg-white/50 px-4 py-2 text-sm font-semibold text-deep shadow-sm backdrop-blur-xl lg:mx-0">
-              iOS-inspired digital wellbeing
+              Break the scroll loop
             </p>
             <h1 className="mt-5 text-balance text-5xl font-semibold leading-[1.02] tracking-normal text-ink sm:text-7xl lg:text-8xl">
-              Break the scroll loop.
+              Turn screen time into real time.
             </h1>
             <p className="mt-5 max-w-2xl text-pretty text-lg leading-8 text-muted">
-              LoopOut helps you use distracting apps with purpose, set a timer, and turn screen time into real-life connection.
+              LoopOut helps people use social media with purpose, lock distractions after a timer, and reconnect offline through friends, places, events and rewards.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row lg:justify-start">
-              <Button icon={Play} onClick={() => navigate('/onboarding')}>
+              <Button icon={Play} onClick={() => onDemoStart?.('personal')}>
                 Start LoopOut
               </Button>
-              <Button variant="secondary" icon={Compass} onClick={() => scrollToSection('how')}>
-                See how it works
+              <Button variant="secondary" icon={Compass} onClick={() => navigate('/platform')}>
+                Explore platform
               </Button>
             </div>
             <div className="mt-8 grid gap-3 text-left sm:grid-cols-3">
@@ -1789,6 +1870,22 @@ function Landing({ navigate }) {
           </div>
         </section>
 
+        <section className="grid gap-4 py-10 md:grid-cols-3">
+          {[
+            ['LoopOut Personal', 'Purpose timer, simulated lock, friends offline, phone-free places and rewards.', CircleUserRound, '/platform'],
+            ['LoopOut Business', 'QR rewards, partner dashboards, campaigns and phone-free events.', Store, '/business'],
+            ['LoopOut Education', 'Classroom QR focus mode, wellbeing certificates, seminars and reports.', BookOpen, '/education'],
+          ].map(([title, body, Icon, href]) => (
+            <button type="button" className="ios-card p-6 text-left" key={title} onClick={() => navigate(href)}>
+              <div className="grid h-11 w-11 place-items-center rounded-full bg-soft text-primary shadow-sm">
+                <Icon className="h-5 w-5" />
+              </div>
+              <h2 className="mt-5 text-2xl font-semibold text-ink">{title}</h2>
+              <p className="mt-3 text-sm leading-6 text-muted">{body}</p>
+            </button>
+          ))}
+        </section>
+
         <section id="places" className="grid gap-4 py-10 md:grid-cols-2">
           <InfoPanel
             eyebrow="Phone-free places"
@@ -1828,7 +1925,7 @@ function Landing({ navigate }) {
           <p className="mx-auto mt-3 max-w-xl text-muted">
             Start with one app, one purpose and one timer. LoopOut keeps the rest calm.
           </p>
-          <Button className="mt-6" icon={ArrowRight} onClick={() => navigate('/onboarding')}>
+          <Button className="mt-6" icon={ArrowRight} onClick={() => onDemoStart?.('personal')}>
             Start LoopOut
           </Button>
         </section>
@@ -1856,6 +1953,714 @@ function SectionTitle({ eyebrow, title }) {
       <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">{eyebrow}</p>
       <h2 className="mt-2 text-3xl font-semibold text-ink">{title}</h2>
     </div>
+  );
+}
+
+function MarketingShell({ navigate, children, cta = 'Start demo', onDemoStart }) {
+  const links = [
+    ['Personal', '/platform'],
+    ['Business', '/business'],
+    ['Education', '/education'],
+    ['Pricing', '/pricing'],
+    ['Trust', '/trust'],
+  ];
+
+  return (
+    <div className="min-h-screen bg-canvas text-ink">
+      <nav className="sticky top-0 z-40 border-b border-white/60 bg-canvas/70 px-4 py-3 backdrop-blur-2xl">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+          <button type="button" onClick={() => navigate('/')}>
+            <BrandMark />
+          </button>
+          <div className="hidden items-center gap-1 md:flex">
+            {links.map(([label, href]) => (
+              <button
+                type="button"
+                className="rounded-full px-4 py-2 text-sm font-semibold text-muted hover:bg-white/55 hover:text-ink"
+                key={href}
+                onClick={() => navigate(href)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <Button className="px-4" onClick={() => onDemoStart?.('personal')}>
+            {cta}
+          </Button>
+        </div>
+      </nav>
+      <main className="mx-auto max-w-6xl px-4 py-10 md:py-16">{children}</main>
+    </div>
+  );
+}
+
+function MarketingHero({ eyebrow, title, subtitle, primary, secondary, onPrimary, onSecondary, icon: Icon = Sparkles }) {
+  return (
+    <section className="grid gap-8 py-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
+      <div>
+        <p className="inline-flex rounded-full border border-white/70 bg-white/55 px-4 py-2 text-sm font-semibold text-deep shadow-sm backdrop-blur-xl">
+          {eyebrow}
+        </p>
+        <h1 className="mt-5 max-w-4xl text-balance text-5xl font-semibold leading-[1.03] text-ink md:text-7xl">{title}</h1>
+        <p className="mt-5 max-w-2xl text-lg leading-8 text-muted">{subtitle}</p>
+        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+          {primary ? <Button icon={ArrowRight} onClick={onPrimary}>{primary}</Button> : null}
+          {secondary ? <Button variant="secondary" icon={Compass} onClick={onSecondary}>{secondary}</Button> : null}
+        </div>
+      </div>
+      <div className="ios-card p-5">
+        <div className="grid h-16 w-16 place-items-center rounded-[22px] bg-soft text-primary">
+          <Icon className="h-8 w-8" />
+        </div>
+        <div className="mt-6 grid gap-3">
+          {['Purpose before app use', 'QR rewards after lock mode', 'Friends, places and events offline'].map((item) => (
+            <div className="flex items-center gap-3 rounded-lg bg-white/55 p-3" key={item}>
+              <CheckCircle2 className="h-5 w-5 text-primary" />
+              <span className="text-sm font-semibold text-ink">{item}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ProductLinesPage({ navigate, onDemoStart }) {
+  const lines = [
+    {
+      title: 'LoopOut Personal',
+      body: 'Purpose timer, simulated lock, friends offline, phone-free places, events, LoopOut Pass and personal analytics.',
+      icon: CircleUserRound,
+      action: () => onDemoStart?.('personal'),
+    },
+    {
+      title: 'LoopOut Business',
+      body: 'Verified partner profiles, QR rewards, campaigns, offline events, scanner analytics and foot-traffic insights.',
+      icon: Store,
+      action: () => onDemoStart?.('business'),
+    },
+    {
+      title: 'LoopOut Education',
+      body: 'Classroom QR focus mode, teacher dashboards, school reports, certificates, seminars and campus wellbeing programs.',
+      icon: BookOpen,
+      action: () => onDemoStart?.('teacher'),
+    },
+  ];
+
+  return (
+    <MarketingShell navigate={navigate} onDemoStart={onDemoStart} cta="Try demo">
+      <MarketingHero
+        eyebrow="The LoopOut platform"
+        title="One product ecosystem for less scrolling and more real life."
+        subtitle="LoopOut is not just an app blocker. It connects personal focus, partner rewards and education programs into one credible demo platform."
+        primary="View personal demo"
+        secondary="Business demo"
+        onPrimary={() => onDemoStart?.('personal')}
+        onSecondary={() => onDemoStart?.('business')}
+      />
+      <section className="grid gap-4 py-8 md:grid-cols-3">
+        {lines.map(({ title, body, icon: Icon, action }) => (
+          <div className="ios-card flex flex-col p-6" key={title}>
+            <div className="grid h-12 w-12 place-items-center rounded-full bg-soft text-primary">
+              <Icon className="h-6 w-6" />
+            </div>
+            <h2 className="mt-5 text-2xl font-semibold text-ink">{title}</h2>
+            <p className="mt-3 flex-1 leading-7 text-muted">{body}</p>
+            <Button className="mt-6 w-full" variant="soft" onClick={action}>
+              Open demo
+            </Button>
+          </div>
+        ))}
+      </section>
+      <section className="grid gap-4 py-8 md:grid-cols-2">
+        <InfoPanel eyebrow="Native roadmap" title="Real blocking comes later in native apps." body="The website/PWA demonstrates the product flow. Device-level app blocking and Screen Time APIs require native iOS and Android development." icon={Smartphone} />
+        <InfoPanel eyebrow="Trust" title="LoopOut never shames users." body="Partners do not see private phone usage. Schools see classroom focus participation, not attempted app opens." icon={ShieldCheck} />
+      </section>
+    </MarketingShell>
+  );
+}
+
+function BusinessPage({ navigate, onDemoStart }) {
+  return (
+    <MarketingShell navigate={navigate} onDemoStart={onDemoStart} cta="Business demo">
+      <MarketingHero
+        eyebrow="LoopOut Business"
+        title="Bring people offline and into your space."
+        subtitle="LoopOut Business helps cafes, restaurants, coworking spaces and brands attract young customers through QR rewards, phone-free events and offline campaigns."
+        primary="View demo dashboard"
+        secondary="Become a partner"
+        onPrimary={() => onDemoStart?.('business')}
+        onSecondary={() => navigate('/partners/suggest')}
+        icon={Store}
+      />
+      <section className="grid gap-4 py-8 md:grid-cols-3">
+        {[
+          ['Increase foot traffic', 'Fill quiet hours with users who just finished a LoopOut lock.'],
+          ['Scan QR rewards', 'Staff validate temporary passes without seeing private phone usage.'],
+          ['Run offline events', 'Host phone-free coffee, study sessions, happy hours and brand campaigns.'],
+        ].map(([title, body]) => (
+          <InfoPanel eyebrow="Business value" title={title} body={body} icon={BadgePercent} key={title} />
+        ))}
+      </section>
+      <section className="ios-card p-6">
+        <SectionTitle eyebrow="How it works" title="From app lock to partner visit." />
+        <div className="mt-6 grid gap-3 md:grid-cols-6">
+          {['Create partner account', 'Add your place', 'Create reward', 'Users earn passes', 'Staff scan QR', 'Track results'].map((item, index) => (
+            <div className="rounded-lg bg-white/55 p-4" key={item}>
+              <span className="text-sm font-semibold text-primary">0{index + 1}</span>
+              <p className="mt-2 text-sm font-semibold text-ink">{item}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+    </MarketingShell>
+  );
+}
+
+function EducationPage({ navigate, onDemoStart }) {
+  return (
+    <MarketingShell navigate={navigate} onDemoStart={onDemoStart} cta="Education demo">
+      <MarketingHero
+        eyebrow="LoopOut Education"
+        title="Distraction-free classrooms. Healthier digital habits."
+        subtitle="LoopOut Education helps schools and universities create focused learning environments while promoting student wellbeing, privacy and digital health education."
+        primary="View Education demo"
+        secondary="Book a pilot"
+        onPrimary={() => onDemoStart?.('teacher')}
+        onSecondary={() => navigate('/partners/suggest')}
+        icon={BookOpen}
+      />
+      <section className="grid gap-4 py-8 md:grid-cols-3">
+        {[
+          ['Classroom Focus Mode', 'Teachers create QR sessions with blocked app lists and privacy-friendly participation.'],
+          ['School Admin Dashboard', 'Institutions see aggregate participation, schedules, reports and wellbeing program status.'],
+          ['Certificates and seminars', 'Digital wellbeing partner badges, student seminars, parent workshops and teacher training.'],
+        ].map(([title, body]) => (
+          <InfoPanel eyebrow="Education" title={title} body={body} icon={ShieldCheck} key={title} />
+        ))}
+      </section>
+      <section className="ios-card p-6">
+        <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">Privacy-friendly by design</p>
+        <p className="mt-3 max-w-3xl text-2xl font-semibold leading-tight text-ink">
+          Teachers only see classroom focus participation. LoopOut does not show private phone activity or which apps students tried to open.
+        </p>
+      </section>
+    </MarketingShell>
+  );
+}
+
+function PricingPage({ navigate, onDemoStart }) {
+  return (
+    <MarketingShell navigate={navigate} onDemoStart={onDemoStart} cta="Try demo">
+      <MarketingHero
+        eyebrow="Pricing"
+        title="A business model across Personal, Business and Education."
+        subtitle="LoopOut can monetize personal premium, partner subscriptions, redemption fees, events, education licenses, seminars and campus wellbeing programs."
+        primary="Start demo"
+        secondary="Roadmap"
+        onPrimary={() => onDemoStart?.('personal')}
+        onSecondary={() => navigate('/roadmap')}
+      />
+      <section className="grid gap-5 py-8 lg:grid-cols-3">
+        {pricingPlans.map((group) => (
+          <div className="ios-card p-5" key={group.line}>
+            <h2 className="text-2xl font-semibold text-ink">{group.line}</h2>
+            <div className="mt-4 space-y-3">
+              {group.plans.map((plan) => (
+                <div className="rounded-lg bg-white/55 p-4" key={plan.name}>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-semibold text-ink">{plan.name}</p>
+                    <p className="text-sm font-semibold text-primary">{plan.price}</p>
+                  </div>
+                  <ul className="mt-3 space-y-2 text-sm leading-6 text-muted">
+                    {plan.features.map((feature) => (
+                      <li key={feature}>- {feature}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </section>
+    </MarketingShell>
+  );
+}
+
+function EventsPage({ navigate, onDemoStart }) {
+  return (
+    <MarketingShell navigate={navigate} onDemoStart={onDemoStart} cta="Join demo">
+      <MarketingHero
+        eyebrow="Offline events"
+        title="Phone-free events turn app breaks into real plans."
+        subtitle="Personal users discover events, businesses host them, and schools run wellbeing seminars or campus focus challenges."
+        primary="Try personal demo"
+        secondary="Business dashboard"
+        onPrimary={() => onDemoStart?.('personal')}
+        onSecondary={() => onDemoStart?.('business')}
+        icon={Calendar}
+      />
+      <section className="grid gap-4 py-8 md:grid-cols-3">
+        {demoEvents.map((event) => (
+          <EventCard event={event} key={event.id} />
+        ))}
+      </section>
+    </MarketingShell>
+  );
+}
+
+function TrustPage({ navigate, onDemoStart }) {
+  return (
+    <MarketingShell navigate={navigate} onDemoStart={onDemoStart} cta="Try demo">
+      <MarketingHero
+        eyebrow="Trust and privacy"
+        title="Digital wellbeing without shame or surveillance."
+        subtitle="LoopOut helps people choose better habits. Partners and schools only receive the minimum information needed for rewards or classroom participation."
+        primary="Open roadmap"
+        secondary="Education demo"
+        onPrimary={() => navigate('/roadmap')}
+        onSecondary={() => onDemoStart?.('teacher')}
+        icon={ShieldCheck}
+      />
+      <section className="grid gap-4 py-8 md:grid-cols-2">
+        {[
+          ['No shame language', 'LoopOut uses purpose, choice and recovery instead of failure messaging.'],
+          ['Partner privacy', 'Businesses validate pass status, reward and group size. They do not see private app usage.'],
+          ['Education privacy', 'Teachers see focus participation only, not private attempted app opens.'],
+          ['Contacts matching future', 'Native contacts matching will require permission and privacy-safe matching.'],
+        ].map(([title, body]) => (
+          <InfoPanel eyebrow="Privacy" title={title} body={body} icon={ShieldCheck} key={title} />
+        ))}
+      </section>
+    </MarketingShell>
+  );
+}
+
+function RoadmapPage({ navigate, onDemoStart }) {
+  return (
+    <MarketingShell navigate={navigate} onDemoStart={onDemoStart} cta="Try demo">
+      <MarketingHero
+        eyebrow="Native App Roadmap"
+        title="The PWA shows the full product vision. Native apps unlock true device control."
+        subtitle="Real app blocking, Screen Time APIs, Android app controls, contacts matching and stronger classroom enforcement require native iOS/Android development."
+        primary="Try current PWA demo"
+        secondary="Trust page"
+        onPrimary={() => onDemoStart?.('personal')}
+        onSecondary={() => navigate('/trust')}
+        icon={Smartphone}
+      />
+      <section className="grid gap-4 py-8 md:grid-cols-3">
+        {[
+          ['iOS Screen Time APIs', 'Real usage insights and stronger app controls in a native iPhone app.'],
+          ['Android controls', 'Equivalent app control tools for Android users and schools.'],
+          ['Contacts matching', 'Permission-based matching to find friends already using LoopOut.'],
+          ['Classroom enforcement', 'Stronger school focus mode with transparent, privacy-safe controls.'],
+          ['Deeper analytics', 'Aggregated wellbeing reports for institutions and partner impact.'],
+          ['Native notifications', 'Reliable timer, lock and pass alerts outside the browser.'],
+        ].map(([title, body]) => (
+          <InfoPanel eyebrow="Future feature" title={title} body={body} icon={Smartphone} key={title} />
+        ))}
+      </section>
+    </MarketingShell>
+  );
+}
+
+function EventCard({ event }) {
+  return (
+    <div className="ios-card p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">{event.category}</p>
+          <h3 className="mt-2 text-xl font-semibold text-ink">{event.title}</h3>
+        </div>
+        <Calendar className="h-5 w-5 text-primary" />
+      </div>
+      <p className="mt-3 text-sm leading-6 text-muted">{event.host} · {event.location}</p>
+      <div className="mt-4 rounded-lg bg-white/55 p-3 text-sm text-deep">
+        {event.time} · {event.attendees} attending · {event.reward}
+      </div>
+      <Button className="mt-4 w-full" variant="soft" icon={Users}>
+        Join event
+      </Button>
+    </div>
+  );
+}
+
+function DemoModeSwitcher({ role, navigate, onStartDemo }) {
+  const items = [
+    ['Personal', 'personal', '/dashboard', CircleUserRound],
+    ['Business', 'business', '/business/dashboard', Store],
+    ['Teacher', 'teacher', '/education/dashboard', BookOpen],
+    ['School', 'school', '/education/dashboard?role=school', Building2],
+  ];
+
+  return (
+    <section className="mb-4 rounded-lg border border-line bg-white p-3 shadow-sm">
+      <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-[0.12em] text-primary">Demo switcher</p>
+      <div className="grid grid-cols-4 gap-2">
+        {items.map(([label, value, href, Icon]) => (
+          <button
+            type="button"
+            className={classNames(
+              'rounded-[18px] border px-2 py-3 text-center text-[11px] font-semibold',
+              role === value ? 'border-primary bg-soft text-deep' : 'border-line bg-white/50 text-muted'
+            )}
+            key={value}
+            onClick={() => {
+              onStartDemo?.(value);
+              navigate(href);
+            }}
+          >
+            <Icon className="mx-auto mb-1 h-4 w-4" />
+            {label}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function BusinessDashboardPage({ navigate, passes = [], scanEvents = [], role = 'business', onStartDemo }) {
+  const metrics = getPartnerMetrics(passes, scanEvents);
+  const displayMetrics = {
+    ...demoBusinessMetrics,
+    qrScans: Math.max(demoBusinessMetrics.qrScans, metrics.scans),
+    rewardsRedeemed: Math.max(demoBusinessMetrics.rewardsRedeemed, metrics.redemptions),
+  };
+
+  return (
+    <>
+      <PageHeader title="Business demo" subtitle="QR rewards, events and partner analytics." navigate={navigate} backTo="/dashboard" />
+      <DemoModeSwitcher role={role} navigate={navigate} onStartDemo={onStartDemo} />
+      <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
+        <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">LoopOut Business</p>
+        <h1 className="mt-2 text-3xl font-semibold leading-tight text-ink">Bring people offline and into your space.</h1>
+        <p className="mt-3 text-sm leading-6 text-muted">
+          Demo dashboard for cafes, restaurants, coworking spaces and brands running QR rewards and offline events.
+        </p>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <Button variant="soft" icon={QrCode} onClick={() => navigate('/partner/scan')}>
+            QR Scanner
+          </Button>
+          <Button variant="secondary" icon={Calendar} onClick={() => navigate('/business/events')}>
+            Events
+          </Button>
+        </div>
+      </section>
+      <section className="mt-4 rounded-lg border border-line bg-white p-4 shadow-sm">
+        <p className="text-sm font-semibold text-ink">Business navigation</p>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {[
+            ['Overview', '/business/dashboard'],
+            ['Places', '/places'],
+            ['Rewards', '/rewards'],
+            ['QR Scanner', '/partner/scan'],
+            ['Events', '/business/events'],
+            ['Settings', '/settings'],
+          ].map(([label, href]) => (
+            <button type="button" className="rounded-lg bg-canvas p-3 text-left text-sm font-semibold text-deep" key={label} onClick={() => navigate(href)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </section>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <StatCard label="QR scans" value={displayMetrics.qrScans} icon={QrCode} />
+        <StatCard label="Rewards redeemed" value={displayMetrics.rewardsRedeemed} icon={Gift} />
+        <StatCard label="Group visits" value={displayMetrics.groupVisits} icon={Users} />
+        <StatCard label="Estimated customers" value={displayMetrics.estimatedCustomers} icon={TrendingUp} />
+        <StatCard label="Active campaigns" value={displayMetrics.activeCampaigns} icon={BadgePercent} />
+        <StatCard label="Revenue placeholder" value={displayMetrics.estimatedRevenue} icon={Store} />
+      </div>
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-ink">Place profile</h2>
+        <div className="mt-3 grid gap-2">
+          {[
+            ['Business name', 'LoopOut Cafe Saldanha'],
+            ['Type', 'Cafe and study space'],
+            ['Area', 'Saldanha, Lisbon'],
+            ['Opening hours', '08:00-19:00'],
+            ['Phone-free vibe', 'Quiet coffee, student tables, low-pressure meetups'],
+            ['Verified badge', 'Approved demo partner'],
+          ].map(([label, value]) => (
+            <div className="rounded-lg bg-canvas p-3" key={label}>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">{label}</p>
+              <p className="mt-1 text-sm font-semibold text-ink">{value}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-ink">Reward campaigns</h2>
+        <div className="mt-3 space-y-2">
+          {rewardCampaigns.map((campaign) => {
+            const partner = getPartnerPlaceById(campaign.partnerPlaceId);
+            return (
+              <button
+                type="button"
+                className="w-full rounded-lg bg-canvas p-3 text-left"
+                key={campaign.id}
+                onClick={() => navigate(`/rewards/${campaign.id}`)}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-ink">{campaign.title}</p>
+                    <p className="truncate text-xs text-muted">{partner?.name || 'Partner'} · {campaign.validWindow}</p>
+                  </div>
+                  <span className="rounded-full bg-soft px-2.5 py-1 text-xs font-semibold text-deep">{campaign.status}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-ink">Analytics preview</h2>
+        <MiniBarChart values={displayMetrics.scansOverTime} />
+        <div className="mt-4 grid gap-2">
+          {displayMetrics.campaignSplit.map(([label, value]) => (
+            <div className="rounded-lg bg-canvas p-3" key={label}>
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-semibold text-ink">{label}</span>
+                <span className="text-muted">{value}%</span>
+              </div>
+              <div className="mt-2 h-2 rounded-full bg-line">
+                <div className="h-2 rounded-full bg-primary" style={{ width: `${value}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function BusinessEventsPage({ navigate, role, onStartDemo }) {
+  return (
+    <>
+      <PageHeader title="Business events" subtitle="Create phone-free campaigns." navigate={navigate} backTo="/business/dashboard" />
+      <DemoModeSwitcher role={role} navigate={navigate} onStartDemo={onStartDemo} />
+      <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
+        <h1 className="text-2xl font-semibold text-ink">Offline event module</h1>
+        <p className="mt-2 text-sm leading-6 text-muted">Businesses can create events, manage RSVPs, offer rewards and track attendance.</p>
+      </section>
+      <div className="mt-4 space-y-3">
+        {demoEvents.filter((event) => event.category !== 'Campus challenge').map((event) => (
+          <EventCard event={event} key={event.id} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function MiniBarChart({ values = [] }) {
+  const max = Math.max(1, ...values);
+  return (
+    <div className="mt-5 flex h-32 items-end gap-2">
+      {values.map((value, index) => (
+        <div className="flex flex-1 flex-col items-center gap-2" key={`${value}-${index}`}>
+          <div className="w-full rounded-t-[14px] bg-primary/80" style={{ height: `${Math.max(10, (value / max) * 100)}%` }} />
+          <span className="text-[10px] font-semibold text-muted">{index + 1}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EducationDashboardPage({ navigate, role = 'teacher', onStartDemo }) {
+  const education = demoEducation;
+  const isSchool = role === 'school';
+  const session = education.activeSession;
+
+  return (
+    <>
+      <PageHeader
+        title={isSchool ? 'School admin demo' : 'Teacher demo'}
+        subtitle="Classroom focus and wellbeing programs."
+        navigate={navigate}
+        backTo="/dashboard"
+      />
+      <DemoModeSwitcher role={role} navigate={navigate} onStartDemo={onStartDemo} />
+      <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
+        <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">{education.institution}</p>
+        <h1 className="mt-2 text-3xl font-semibold leading-tight text-ink">
+          {isSchool ? 'Digital wellbeing overview.' : 'Create classroom Focus Mode.'}
+        </h1>
+        <p className="mt-3 text-sm leading-6 text-muted">
+          Focus without taking phones away. The demo tracks participation, not private phone activity.
+        </p>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <Button variant="soft" icon={QrCode} onClick={() => navigate('/education/classroom')}>
+            Classroom QR
+          </Button>
+          <Button variant="secondary" icon={Calendar} onClick={() => navigate('/education/schedules')}>
+            Schedules
+          </Button>
+        </div>
+      </section>
+      <section className="mt-4 rounded-lg border border-line bg-white p-4 shadow-sm">
+        <p className="text-sm font-semibold text-ink">Education navigation</p>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {[
+            ['Overview', '/education/dashboard'],
+            ['Classes', '/education/classroom'],
+            ['Schedules', '/education/schedules'],
+            ['Certificates', '/education/certificates'],
+            ['Seminars', '/education/seminars'],
+            ['Reports', '/progress'],
+          ].map(([label, href]) => (
+            <button type="button" className="rounded-lg bg-canvas p-3 text-left text-sm font-semibold text-deep" key={label} onClick={() => navigate(href)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </section>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <StatCard label="Active classrooms" value="3" icon={BookOpen} />
+        <StatCard label="Students active" value={`${session.studentsActive}/${session.studentsTotal}`} icon={Users} />
+        <StatCard label="Focus minutes" value="4.2k" icon={Timer} />
+        <StatCard label="Teachers onboarded" value={education.teachers.length} icon={UserPlus} />
+      </div>
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-ink">Active session</h2>
+        <div className="mt-3 rounded-lg bg-canvas p-4">
+          <p className="text-lg font-semibold text-ink">{session.className} · {session.subject}</p>
+          <p className="mt-1 text-sm text-muted">{session.teacher} · {session.room} · {session.time}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {session.blockedApps.map((app) => (
+              <span className="rounded-full bg-soft px-3 py-1 text-xs font-semibold text-deep" key={app}>{app}</span>
+            ))}
+          </div>
+        </div>
+      </section>
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-ink">Live classroom status</h2>
+        <div className="mt-3 space-y-2">
+          {education.studentStatuses.map((student) => (
+            <div className="grid grid-cols-[1fr_auto] gap-3 rounded-lg bg-canvas p-3" key={student.name}>
+              <div>
+                <p className="text-sm font-semibold text-ink">{student.name}</p>
+                <p className="text-xs text-muted">Joined: {student.joinedAt} · Remaining: {student.remaining}</p>
+              </div>
+              <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold text-deep">{student.status}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function ClassroomFocusPage({ navigate }) {
+  const session = demoEducation.activeSession;
+  return (
+    <>
+      <PageHeader title="Classroom QR Focus" subtitle="Demo classroom session." navigate={navigate} backTo="/education/dashboard" />
+      <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
+        <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">Focus Mode</p>
+        <h1 className="mt-2 text-2xl font-semibold text-ink">{session.className}</h1>
+        <p className="mt-2 text-sm leading-6 text-muted">{session.teacher} · {session.room} · {session.time}</p>
+        <div className="mx-auto mt-5 grid h-48 w-48 grid-cols-9 gap-1 rounded-[28px] bg-white p-5 shadow-sm">
+          {Array.from({ length: 81 }).map((_, index) => (
+            <span className={classNames('rounded-[3px]', index % 2 === 0 || index % 7 === 0 ? 'bg-ink' : 'bg-transparent')} key={index} />
+          ))}
+        </div>
+        <p className="mt-4 text-center text-sm font-semibold text-deep">{session.publicCode}</p>
+        <Button className="mt-5 w-full" icon={Play}>
+          Start Focus Mode
+        </Button>
+      </section>
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-ink">Blocked apps for this class</h2>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {session.blockedApps.map((app) => (
+            <span className="rounded-full bg-soft px-3 py-1 text-sm font-semibold text-deep" key={app}>{app}</span>
+          ))}
+        </div>
+        <p className="mt-4 rounded-lg bg-canvas p-3 text-sm leading-6 text-muted">
+          Demo note: this website cannot enforce device-level blocking. Native classroom enforcement is a future app feature.
+        </p>
+      </section>
+    </>
+  );
+}
+
+function EducationSchedulesPage({ navigate }) {
+  return (
+    <>
+      <PageHeader title="Education schedules" subtitle="Weekly and recurring focus sessions." navigate={navigate} backTo="/education/dashboard" />
+      <div className="space-y-3">
+        {demoEducation.schedules.map((item) => (
+          <div className="rounded-lg border border-line bg-white p-4 shadow-sm" key={item.title}>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="font-semibold text-ink">{item.title}</p>
+                <p className="mt-1 text-sm text-muted">{item.time} · {item.room}</p>
+              </div>
+              <span className="rounded-full bg-soft px-3 py-1 text-xs font-semibold text-deep">{item.rule}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function EducationCertificatesPage({ navigate }) {
+  const certificate = demoEducation.certificate;
+  return (
+    <>
+      <PageHeader title="Certificates" subtitle="Digital wellbeing partner status." navigate={navigate} backTo="/education/dashboard" />
+      <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
+        <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">{certificate.status}</p>
+        <h1 className="mt-2 text-2xl font-semibold text-ink">{certificate.name}</h1>
+        <p className="mt-3 text-sm leading-6 text-muted">
+          This institution is committed to helping students build healthier digital habits, reduce classroom distractions and strengthen real-life connection.
+        </p>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <div className="rounded-lg bg-canvas p-3">
+            <p className="text-xs text-muted">Issue date</p>
+            <p className="font-semibold text-ink">{certificate.issueDate}</p>
+          </div>
+          <div className="rounded-lg bg-canvas p-3">
+            <p className="text-xs text-muted">Renewal</p>
+            <p className="font-semibold text-ink">{certificate.renewalDate}</p>
+          </div>
+        </div>
+      </section>
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-ink">Requirements checklist</h2>
+        <div className="mt-3 space-y-2">
+          {certificate.requirements.map((item) => (
+            <div className="flex items-center gap-3 rounded-lg bg-canvas p-3" key={item}>
+              <CheckCircle2 className="h-5 w-5 text-primary" />
+              <span className="text-sm font-semibold text-ink">{item}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function EducationSeminarsPage({ navigate }) {
+  return (
+    <>
+      <PageHeader title="Seminars" subtitle="Digital wellbeing education." navigate={navigate} backTo="/education/dashboard" />
+      <div className="space-y-3">
+        {demoEducation.seminars.map((seminar) => (
+          <div className="rounded-lg border border-line bg-white p-4 shadow-sm" key={seminar.title}>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">{seminar.audience}</p>
+            <h2 className="mt-2 text-lg font-semibold text-ink">{seminar.title}</h2>
+            <p className="mt-2 text-sm text-muted">{seminar.date} · {seminar.speaker}</p>
+            <div className="mt-3 flex items-center justify-between rounded-lg bg-canvas p-3 text-sm">
+              <span className="font-semibold text-deep">{seminar.status}</span>
+              <span className="text-muted">Feedback {seminar.score}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -1923,11 +2728,12 @@ function Onboarding({ navigate, setOnboarded }) {
   );
 }
 
-function AuthPage({ navigate, profile, onAuthReady, returnTo }) {
+function AuthPage({ navigate, profile, onAuthReady, returnTo, onDemoStart }) {
   const [mode, setMode] = useState('signup');
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [accountType, setAccountType] = useState('Personal');
   const [form, setForm] = useState({
     name: profile.name || '',
     username: profile.username || '',
@@ -1992,6 +2798,38 @@ function AuthPage({ navigate, profile, onAuthReady, returnTo }) {
           <p className="mt-3 text-sm leading-6 text-muted">
             Your account, sessions, friends and privacy settings are protected with Supabase Auth and RLS.
           </p>
+          <Button className="mt-5 w-full" variant="soft" icon={Sparkles} onClick={() => onDemoStart?.('personal')}>
+            Try LoopOut demo
+          </Button>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <Button variant="secondary" className="px-3" icon={Store} onClick={() => onDemoStart?.('business')}>
+              Business demo
+            </Button>
+            <Button variant="secondary" className="px-3" icon={BookOpen} onClick={() => onDemoStart?.('teacher')}>
+              Education demo
+            </Button>
+          </div>
+          <div className="mt-5 rounded-lg bg-canvas p-3">
+            <p className="text-sm font-semibold text-ink">Account type</p>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {['Personal', 'Business', 'Education'].map((type) => (
+                <button
+                  type="button"
+                  className={classNames(
+                    'rounded-full border px-3 py-2 text-xs font-semibold',
+                    accountType === type ? 'border-primary bg-primary text-white' : 'border-line bg-white/50 text-deep'
+                  )}
+                  key={type}
+                  onClick={() => setAccountType(type)}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+            <p className="mt-3 text-xs leading-5 text-muted">
+              Business and Education account roles are available in demo mode; Supabase role tables can be connected later.
+            </p>
+          </div>
           {supabaseConfigWarning ? (
             <div className="mt-4 rounded-lg bg-[#FFF7E6] p-3 text-sm leading-6 text-[#B54708]">
               {supabaseConfigWarning} Update Vercel later to use the clean Project URL.
@@ -2240,6 +3078,41 @@ function Dashboard({ navigate, profile, session, now, stats, friends = [], invit
               </button>
             );
           })}
+        </div>
+      </section>
+
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-muted">Offline events</p>
+            <h2 className="mt-1 text-xl font-semibold text-ink">Plans beyond the timer.</h2>
+          </div>
+          <Calendar className="h-5 w-5 text-primary" />
+        </div>
+        <div className="mt-4 space-y-2">
+          {demoEvents.slice(0, 2).map((event) => (
+            <button
+              type="button"
+              className="w-full rounded-lg bg-canvas p-3 text-left"
+              key={event.id}
+              onClick={() => navigate('/events')}
+            >
+              <p className="text-sm font-semibold text-ink">{event.title}</p>
+              <p className="mt-1 text-xs text-muted">{event.time} · {event.location} · {event.reward}</p>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-ink">Notifications</h2>
+        <div className="mt-3 space-y-2">
+          {demoNotifications.slice(0, 3).map((notification) => (
+            <div className="rounded-lg bg-canvas p-3" key={notification.id}>
+              <p className="text-sm font-semibold text-ink">{notification.title}</p>
+              <p className="mt-1 text-xs text-muted">{notification.body}</p>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -2546,7 +3419,9 @@ function ChoiceButton({ selected, children, onClick, className = '' }) {
       type="button"
       className={classNames(
         'ios-pill min-h-11 rounded-full border px-3 text-sm font-semibold leading-none',
-        selected ? 'border-primary bg-primary/88 text-white shadow-[0_12px_26px_rgba(60,118,249,0.22)]' : 'border-white/70 bg-white/45 text-ink',
+        selected
+          ? 'border-[#3C76F9] bg-[#3C76F9] !text-white shadow-[0_12px_26px_rgba(60,118,249,0.28)] ring-2 ring-white/75'
+          : 'border-white/70 bg-white/45 text-ink',
         className
       )}
       onClick={onClick}
@@ -2979,6 +3854,33 @@ function FriendsPage({
               ) : null}
             </div>
           ) : null}
+        </section>
+      ) : null}
+
+      {isRemote ? (
+        <section className="mb-4 rounded-lg border border-line bg-white p-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-soft text-primary">
+              <Users className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-ink">Contacts matching preview</h2>
+              <p className="mt-1 text-sm leading-6 text-muted">
+                In the native app, LoopOut will detect which phone contacts also use LoopOut, with permission and privacy-safe matching.
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-2">
+            {demoContactMatches.slice(0, 3).map((contact) => (
+              <div className="flex items-center justify-between gap-3 rounded-lg bg-canvas p-3" key={contact.id}>
+                <div>
+                  <p className="text-sm font-semibold text-ink">{contact.name}</p>
+                  <p className="text-xs text-muted">{contact.handle} · {contact.match}</p>
+                </div>
+                <span className="rounded-full bg-soft px-2.5 py-1 text-xs font-semibold text-deep">Demo</span>
+              </div>
+            ))}
+          </div>
         </section>
       ) : null}
 
@@ -3743,10 +4645,14 @@ function AdminPage({ navigate, passes = [], partnerLeads = [], scanEvents = [] }
         </p>
       </section>
       <div className="mt-4 grid grid-cols-2 gap-3">
+        <StatCard label="Total users" value="1.8k" icon={Users} />
+        <StatCard label="Personal sessions" value="12.4k" icon={Timer} />
         <StatCard label="Active passes" value={activePasses} icon={WalletCards} />
         <StatCard label="QR redemptions" value={redeemedPasses} icon={QrCode} />
         <StatCard label="Partner places" value={verifiedPartners} icon={Store} />
-        <StatCard label="Scan events" value={scanEvents.length} icon={ScanLine} />
+        <StatCard label="Scan events" value={scanEvents.length} icon={QrCode} />
+        <StatCard label="Education institutions" value="6" icon={BookOpen} />
+        <StatCard label="Active classrooms" value="14" icon={Building2} />
       </div>
       <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
         <h2 className="font-semibold text-ink">Partner applications</h2>
@@ -3800,7 +4706,7 @@ function PlacesPage({
 }) {
   const [category, setCategory] = useState(defaultCategory);
   const [userLocation, setUserLocation] = useState(null);
-  const categories = ['All', 'Verified Partners', 'Cafes', 'Restaurants', 'Study Spaces', 'Gardens', 'Libraries', 'Parks'];
+  const categories = ['All', 'Verified Partners', 'Gardens', 'Libraries', 'Cafes', 'Study Spaces', 'Cultural', 'Universities', 'Schools'];
   const loopoutPlaces = useMemo(() => buildLoopOutPlaces(places), [places]);
 
   const requestLocation = useCallback(() => {
@@ -4136,6 +5042,11 @@ function SettingsPage({
   onSaveProfile,
   onSavePrivacy,
   onLogout,
+  isDemo = false,
+  demoRole = 'personal',
+  onStartDemo,
+  onResetDemo,
+  onExitDemo,
 }) {
   const [copied, setCopied] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -4296,6 +5207,35 @@ function SettingsPage({
       </SettingsGroup>
 
       <SettingsGroup title="Data" icon={UploadCloud}>
+        {isDemo ? (
+          <div className="rounded-lg bg-soft p-3 text-sm leading-6 text-deep">
+            Demo mode active: {demoRole}. Changes are stored locally on this device.
+          </div>
+        ) : null}
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="secondary" className="px-3" icon={CircleUserRound} onClick={() => onStartDemo?.('personal')}>
+            Personal demo
+          </Button>
+          <Button variant="secondary" className="px-3" icon={Store} onClick={() => onStartDemo?.('business')}>
+            Business demo
+          </Button>
+          <Button variant="secondary" className="px-3" icon={BookOpen} onClick={() => onStartDemo?.('teacher')}>
+            Teacher demo
+          </Button>
+          <Button variant="secondary" className="px-3" icon={Building2} onClick={() => onStartDemo?.('school')}>
+            School demo
+          </Button>
+        </div>
+        {isDemo ? (
+          <>
+            <Button className="w-full" variant="soft" icon={UploadCloud} onClick={onResetDemo}>
+              Reset demo data
+            </Button>
+            <Button className="w-full" variant="secondary" icon={LogOut} onClick={onExitDemo}>
+              Exit demo
+            </Button>
+          </>
+        ) : null}
         <button
           type="button"
           className="w-full rounded-lg border border-line bg-white p-3 text-left text-sm font-semibold text-deep"
@@ -4514,7 +5454,7 @@ function LoadingScreen() {
   );
 }
 
-function BackendRequiredScreen({ navigate }) {
+function BackendRequiredScreen({ navigate, onDemoStart }) {
   return (
     <div className="min-h-screen bg-canvas px-4 py-[calc(env(safe-area-inset-top)+24px)] text-ink">
       <div className="mx-auto max-w-md">
@@ -4535,6 +5475,17 @@ function BackendRequiredScreen({ navigate }) {
             <p className="font-semibold text-ink">Required variables</p>
             <p>VITE_SUPABASE_URL</p>
             <p>VITE_SUPABASE_ANON_KEY</p>
+          </div>
+          <Button className="mt-5 w-full" icon={Sparkles} onClick={() => onDemoStart?.('personal')}>
+            Continue with demo
+          </Button>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Button variant="secondary" className="px-3" icon={Store} onClick={() => onDemoStart?.('business')}>
+              Business
+            </Button>
+            <Button variant="secondary" className="px-3" icon={BookOpen} onClick={() => onDemoStart?.('teacher')}>
+              Education
+            </Button>
           </div>
           <Button className="mt-5 w-full" variant="soft" icon={Copy} onClick={() => navigate('/setup-iphone')}>
             View iPhone setup
@@ -4563,6 +5514,18 @@ export default function App() {
   const [scanEvents, setScanEvents] = useLocalStorage(storageKeys.scanEvents, []);
   const [screenTimeLogs, setScreenTimeLogs] = useLocalStorage(storageKeys.screenTimeLogs, []);
   const [, setOnboarded] = useLocalStorage(storageKeys.onboarded, false);
+  const [demoMode, setDemoMode] = useLocalStorage(storageKeys.demoMode, false);
+  const [demoRole, setDemoRole] = useLocalStorage(storageKeys.demoRole, 'personal');
+  const [demoFriendList, setDemoFriendList] = useLocalStorage(storageKeys.demoFriends, demoFriends);
+  const [demoFriendRequests, setDemoFriendRequests] = useLocalStorage(storageKeys.demoFriendRequests, [
+    {
+      id: 'demo-request-francisco',
+      profileId: 'contact-francisco',
+      name: 'Francisco Neves',
+      avatar: 'FN',
+      direction: 'received',
+    },
+  ]);
   const [authUser, setAuthUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
   const [dataLoading, setDataLoading] = useState(false);
@@ -4578,15 +5541,84 @@ export default function App() {
   const [screenTimeSaving, setScreenTimeSaving] = useState(false);
 
   const isRemote = isSupabaseConfigured && Boolean(authUser);
-  const activeFriends = isRemote ? remoteFriends : [];
+  const isDemo = Boolean(demoMode) && !isRemote;
+  const demoUserId = demoProfile.id;
+  const activeProfile = isDemo ? demoProfile : profile;
+  const activeFriends = isRemote ? remoteFriends : isDemo ? demoFriendList : [];
   const activeInvites = isRemote ? remoteInvites : invites;
   const activePlaces = places.length ? places : lisbonPlaces;
-  const activeStats = progressStats || fallbackProgressSnapshot(session, activeInvites, screenTimeLogs);
+  const activeStats = isDemo ? demoProgressStats : progressStats || fallbackProgressSnapshot(session, activeInvites, screenTimeLogs);
   const requestedAppId = searchParams.get('app');
   const currentRoute = `${path}${search}`;
   const activePass = getActivePassForSession(passes, session, now);
   const offlineFriendCount = activeFriends.filter((friend) => friend.isOffline || friend.available).length;
   const allInvitePlaces = useMemo(() => buildLoopOutPlaces(activePlaces), [activePlaces]);
+
+  const startDemo = useCallback(
+    (role = 'personal') => {
+      const nextSession = createDemoLockedSession();
+      const nextPass = createDemoPass(nextSession);
+      setDemoMode(true);
+      setDemoRole(role);
+      setAuthUser(null);
+      setRemoteFriends([]);
+      setFriendRequests([]);
+      setRemoteInvites([]);
+      setProgressStats(null);
+      setProfile(demoProfile);
+      setSettings((current) => ({ ...current, ...defaultSettings }));
+      setDemoFriendList(demoFriends);
+      setDemoFriendRequests((current) => (current.length ? current : [
+        {
+          id: 'demo-request-francisco',
+          profileId: 'contact-francisco',
+          name: 'Francisco Neves',
+          avatar: 'FN',
+          direction: 'received',
+        },
+      ]));
+      setSession(nextSession);
+      setInvites(createDemoInvites());
+      setPasses((current) => {
+        const withoutDemo = current.filter((item) => item.sessionId !== getSessionKey(nextSession));
+        return [nextPass, ...withoutDemo];
+      });
+      if (role === 'business') navigate('/business/dashboard');
+      else if (role === 'teacher' || role === 'school') navigate('/education/dashboard');
+      else navigate('/dashboard');
+    },
+    [
+      navigate,
+      setDemoFriendList,
+      setDemoFriendRequests,
+      setDemoMode,
+      setDemoRole,
+      setInvites,
+      setPasses,
+      setProfile,
+      setSession,
+      setSettings,
+    ]
+  );
+
+  const resetDemoData = useCallback(() => {
+    const nextSession = createDemoLockedSession();
+    const nextPass = createDemoPass(nextSession);
+    setDemoFriendList(demoFriends);
+    setDemoFriendRequests([
+      {
+        id: 'demo-request-francisco',
+        profileId: 'contact-francisco',
+        name: 'Francisco Neves',
+        avatar: 'FN',
+        direction: 'received',
+      },
+    ]);
+    setInvites(createDemoInvites());
+    setScanEvents([]);
+    setSession(nextSession);
+    setPasses([nextPass]);
+  }, [setDemoFriendList, setDemoFriendRequests, setInvites, setPasses, setScanEvents, setSession]);
 
   useEffect(() => {
     if (path !== '/session/purpose' || !isKnownAppId(requestedAppId)) return;
@@ -4756,28 +5788,31 @@ export default function App() {
   }, [navigate, now, path, persistSessionComplete, persistSessionLock, session, setSession]);
 
   useEffect(() => {
-    if (!isRemote || !authUser || session?.status !== 'locked') return;
+    const passUserId = isRemote ? authUser?.id : isDemo ? demoUserId : null;
+    if (!passUserId || session?.status !== 'locked') return;
 
     setPasses((current) => {
       if (getActivePassForSession(current, session, Date.now())) return current;
-      if (getDailyPassCount(current, authUser.id) >= 3) return current;
+      if (getDailyPassCount(current, passUserId) >= 3) return current;
 
       return [
         createLoopOutPass({
           session,
-          userId: authUser.id,
+          userId: passUserId,
           campaignId: rewardCampaigns[0].id,
           groupSize: Math.min(3, 1 + offlineFriendCount),
-          displayName: profile.name?.split(' ')[0] || 'LoopOut user',
+          displayName: activeProfile.name?.split(' ')[0] || 'LoopOut user',
         }),
         ...current,
       ];
     });
   }, [
+    activeProfile.name,
     authUser,
+    demoUserId,
+    isDemo,
     isRemote,
     offlineFriendCount,
-    profile.name,
     session?.id,
     session?.lockEndsAt,
     session?.remoteId,
@@ -4845,11 +5880,27 @@ export default function App() {
         });
         await loadRemoteData(authUser);
       } else {
+        const selectedFriend = activeFriends.find((item) => item.id === invite.friendId);
+        const selectedPlace = allInvitePlaces.find((item) => item.id === invite.placeId);
         setInvites([
           {
             id: crypto.randomUUID(),
             ...invite,
-            status: 'sent',
+            sender_id: demoUserId,
+            receiver_id: invite.friendId,
+            receiver: selectedFriend
+              ? {
+                  id: selectedFriend.id,
+                  full_name: selectedFriend.name,
+                  username: selectedFriend.username,
+                  city: 'Lisbon',
+                  area: selectedFriend.area,
+                }
+              : null,
+            place_id: invite.placeId,
+            place: selectedPlace || null,
+            suggested_time: suggestedTimeToIso(invite.time),
+            status: 'pending',
             createdAt: Date.now(),
           },
           ...invites,
@@ -4913,23 +5964,87 @@ export default function App() {
   };
 
   const searchFriendsRemote = async (query) => {
+    if (isDemo) {
+      const normalizedQuery = query.trim().toLowerCase();
+      const existingIds = new Set([
+        ...demoFriendList.map((friend) => friend.id),
+        ...demoFriendRequests.map((request) => request.profileId || request.id),
+      ]);
+      return demoContactMatches
+        .filter((contact) => !existingIds.has(contact.id))
+        .filter((contact) => `${contact.name} ${contact.handle}`.toLowerCase().includes(normalizedQuery))
+        .map((contact) => ({
+          id: contact.id,
+          full_name: contact.name,
+          username: contact.handle.replace('@', ''),
+          email: `${contact.handle.replace('@', '')}@loopout.demo`,
+        }));
+    }
     if (!isRemote || !authUser) return [];
     return searchProfiles(query, authUser.id);
   };
 
   const sendFriendRequestRemote = async (profileId) => {
+    if (isDemo) {
+      const match = demoContactMatches.find((contact) => contact.id === profileId);
+      if (!match) throw new Error('Demo contact not found.');
+      if (demoFriendList.some((friend) => friend.id === profileId) || demoFriendRequests.some((request) => request.profileId === profileId)) {
+        throw new Error('This person is already in your LoopOut network.');
+      }
+      setDemoFriendRequests((current) => [
+        {
+          id: crypto.randomUUID(),
+          profileId,
+          name: match.name,
+          avatar: getInitials(match.name),
+          direction: 'sent',
+        },
+        ...current,
+      ]);
+      return;
+    }
     if (!isRemote || !authUser) return;
     await sendFriendRequest(authUser.id, profileId);
     await loadRemoteData(authUser);
   };
 
   const respondFriendRequestRemote = async (friendshipId, status) => {
+    if (isDemo) {
+      const request = demoFriendRequests.find((item) => item.id === friendshipId);
+      setDemoFriendRequests((current) => current.filter((item) => item.id !== friendshipId));
+      if (request && status === 'accepted') {
+        setDemoFriendList((current) => {
+          if (current.some((friend) => friend.id === request.profileId)) return current;
+          return [
+            {
+              id: request.profileId,
+              name: request.name,
+              avatar: request.avatar,
+              username: request.name.toLowerCase().split(' ')[0],
+              email: `${request.name.toLowerCase().split(' ')[0]}@loopout.demo`,
+              status: 'Available to meet',
+              area: 'Lisbon',
+              available: true,
+              isOffline: true,
+              lockedApp: 'Instagram',
+              remainingMinutes: 16,
+            },
+            ...current,
+          ];
+        });
+      }
+      return;
+    }
     if (!isRemote || !authUser) return;
     await respondToFriendRequest(friendshipId, status);
     await loadRemoteData(authUser);
   };
 
   const respondInviteRemote = async (inviteId, status) => {
+    if (isDemo) {
+      setInvites((current) => current.map((invite) => (invite.id === inviteId ? { ...invite, status } : invite)));
+      return;
+    }
     if (!isRemote || !authUser) return;
     await respondToInvite(inviteId, status);
     await loadRemoteData(authUser);
@@ -4937,8 +6052,9 @@ export default function App() {
 
   const ensureLoopOutPass = useCallback(
     (campaignId = rewardCampaigns[0].id) => {
-      if (!isRemote || !authUser) {
-        return { error: 'Sign in to generate a LoopOut Pass.' };
+      const passUserId = isRemote ? authUser?.id : isDemo ? demoUserId : null;
+      if (!passUserId) {
+        return { error: 'Sign in or start demo mode to generate a LoopOut Pass.' };
       }
       if (!session || session.status !== 'locked') {
         return { error: 'Finish a timer first. Passes only work during an active lock.' };
@@ -4953,21 +6069,21 @@ export default function App() {
         return { pass: updatedPass };
       }
 
-      if (getDailyPassCount(passes, authUser.id) >= 3) {
+      if (getDailyPassCount(passes, passUserId) >= 3) {
         return { error: 'Daily reward limit reached. Try again tomorrow.' };
       }
 
       const nextPass = createLoopOutPass({
         session,
-        userId: authUser.id,
+        userId: passUserId,
         campaignId,
         groupSize,
-        displayName: profile.name?.split(' ')[0] || 'LoopOut user',
+        displayName: activeProfile.name?.split(' ')[0] || 'LoopOut user',
       });
       setPasses((current) => [nextPass, ...current]);
       return { pass: nextPass };
     },
-    [authUser, isRemote, offlineFriendCount, passes, profile.name, session, setPasses]
+    [activeProfile.name, authUser, demoUserId, isDemo, isRemote, offlineFriendCount, passes, session, setPasses]
   );
 
   const submitPartnerLead = useCallback(
@@ -5101,17 +6217,25 @@ export default function App() {
   );
 
   const publicPage = (() => {
-    if (path === '/') return <Landing navigate={navigate} />;
+    if (path === '/') return <Landing navigate={navigate} onDemoStart={startDemo} />;
+    if (path === '/platform') return <ProductLinesPage navigate={navigate} onDemoStart={startDemo} />;
+    if (path === '/business') return <BusinessPage navigate={navigate} onDemoStart={startDemo} />;
+    if (path === '/education') return <EducationPage navigate={navigate} onDemoStart={startDemo} />;
+    if (path === '/pricing') return <PricingPage navigate={navigate} onDemoStart={startDemo} />;
+    if (path === '/events') return <EventsPage navigate={navigate} onDemoStart={startDemo} />;
+    if (path === '/trust') return <TrustPage navigate={navigate} onDemoStart={startDemo} />;
+    if (path === '/roadmap') return <RoadmapPage navigate={navigate} onDemoStart={startDemo} />;
     if (path === '/partners') return <PartnerLandingPage navigate={navigate} />;
     if (path === '/partners/suggest') return <PartnerApplicationPage navigate={navigate} onSubmit={submitPartnerLead} />;
     if (path === '/onboarding') return <Onboarding navigate={navigate} setOnboarded={setOnboarded} />;
     if (path === '/login') {
-      if (!isSupabaseConfigured) return <BackendRequiredScreen navigate={navigate} />;
+      if (!isSupabaseConfigured) return <BackendRequiredScreen navigate={navigate} onDemoStart={startDemo} />;
       return (
         <AuthPage
           navigate={navigate}
-          profile={profile}
+          profile={activeProfile}
           onAuthReady={(user) => loadRemoteData(user)}
+          onDemoStart={startDemo}
         />
       );
     }
@@ -5123,30 +6247,39 @@ export default function App() {
     if (authLoading) return <LoadingScreen />;
     if (publicPage) return publicPage;
 
-    if (!isSupabaseConfigured) {
-      return <BackendRequiredScreen navigate={navigate} />;
+    if (!isSupabaseConfigured && !isDemo) {
+      return <BackendRequiredScreen navigate={navigate} onDemoStart={startDemo} />;
     }
 
-    if (isSupabaseConfigured && !authUser) {
+    if (isSupabaseConfigured && !authUser && !isDemo) {
       return (
         <AuthPage
           navigate={navigate}
-          profile={profile}
+          profile={activeProfile}
           onAuthReady={(user) => loadRemoteData(user)}
           returnTo={currentRoute}
+          onDemoStart={startDemo}
         />
       );
     }
 
-    if (path === '/') return <Landing navigate={navigate} />;
+    if (path === '/') return <Landing navigate={navigate} onDemoStart={startDemo} />;
+    if (path === '/platform') return <ProductLinesPage navigate={navigate} onDemoStart={startDemo} />;
+    if (path === '/business') return <BusinessPage navigate={navigate} onDemoStart={startDemo} />;
+    if (path === '/education') return <EducationPage navigate={navigate} onDemoStart={startDemo} />;
+    if (path === '/pricing') return <PricingPage navigate={navigate} onDemoStart={startDemo} />;
+    if (path === '/events') return <EventsPage navigate={navigate} onDemoStart={startDemo} />;
+    if (path === '/trust') return <TrustPage navigate={navigate} onDemoStart={startDemo} />;
+    if (path === '/roadmap') return <RoadmapPage navigate={navigate} onDemoStart={startDemo} />;
     if (path === '/onboarding') return <Onboarding navigate={navigate} setOnboarded={setOnboarded} />;
     if (path === '/login') {
-      if (!isSupabaseConfigured) return <BackendRequiredScreen navigate={navigate} />;
+      if (!isSupabaseConfigured) return <BackendRequiredScreen navigate={navigate} onDemoStart={startDemo} />;
       return (
         <AuthPage
           navigate={navigate}
-          profile={profile}
+          profile={activeProfile}
           onAuthReady={(user) => loadRemoteData(user)}
+          onDemoStart={startDemo}
         />
       );
     }
@@ -5159,14 +6292,14 @@ export default function App() {
         return (
           <Dashboard
             navigate={navigate}
-            profile={profile}
+            profile={activeProfile}
             session={session}
             now={now}
             stats={activeStats}
             friends={activeFriends}
             invites={activeInvites}
             loading={dataLoading}
-            isRemote={isRemote}
+            isRemote={isRemote || isDemo}
             pass={activePass}
           />
         );
@@ -5260,6 +6393,35 @@ export default function App() {
       if (path === '/partner/dashboard') {
         return <PartnerDashboardPage navigate={navigate} passes={passes} scanEvents={scanEvents} />;
       }
+      if (path === '/business/dashboard') {
+        return (
+          <BusinessDashboardPage
+            navigate={navigate}
+            passes={passes}
+            scanEvents={scanEvents}
+            role={demoRole}
+            onStartDemo={startDemo}
+          />
+        );
+      }
+      if (path === '/business/events') {
+        return <BusinessEventsPage navigate={navigate} role={demoRole} onStartDemo={startDemo} />;
+      }
+      if (path === '/education/dashboard') {
+        return <EducationDashboardPage navigate={navigate} role={demoRole} onStartDemo={startDemo} />;
+      }
+      if (path === '/education/classroom') {
+        return <ClassroomFocusPage navigate={navigate} />;
+      }
+      if (path === '/education/schedules') {
+        return <EducationSchedulesPage navigate={navigate} />;
+      }
+      if (path === '/education/certificates') {
+        return <EducationCertificatesPage navigate={navigate} />;
+      }
+      if (path === '/education/seminars') {
+        return <EducationSeminarsPage navigate={navigate} />;
+      }
       if (path === '/admin') {
         return <AdminPage navigate={navigate} passes={passes} partnerLeads={partnerLeads} scanEvents={scanEvents} />;
       }
@@ -5270,11 +6432,11 @@ export default function App() {
             settings={settings}
             openInvite={openInvite}
             friends={activeFriends}
-            requests={friendRequests}
+            requests={isDemo ? demoFriendRequests : friendRequests}
             invites={activeInvites}
             places={allInvitePlaces}
-            currentUserId={authUser?.id}
-            isRemote={isRemote}
+            currentUserId={isDemo ? demoUserId : authUser?.id}
+            isRemote={isRemote || isDemo}
             loading={dataLoading}
             onSearch={searchFriendsRemote}
             onSendFriendRequest={sendFriendRequestRemote}
@@ -5303,7 +6465,7 @@ export default function App() {
             logs={screenTimeLogs}
             onSave={saveScreenTimeLog}
             saving={screenTimeSaving}
-            isRemote={isRemote}
+            isRemote={isRemote || isDemo}
           />
         );
       }
@@ -5311,11 +6473,19 @@ export default function App() {
         return (
           <SettingsPage
             navigate={navigate}
-            profile={profile}
+            profile={activeProfile}
             setProfile={setProfile}
             settings={settings}
             setSettings={setSettings}
             isRemote={isRemote}
+            isDemo={isDemo}
+            demoRole={demoRole}
+            onStartDemo={startDemo}
+            onResetDemo={resetDemoData}
+            onExitDemo={() => {
+              setDemoMode(false);
+              navigate('/login');
+            }}
             onSaveProfile={saveProfile}
             onSavePrivacy={savePrivacy}
             onLogout={logout}
@@ -5325,14 +6495,14 @@ export default function App() {
       return (
         <Dashboard
           navigate={navigate}
-          profile={profile}
+          profile={activeProfile}
           session={session}
           now={now}
           stats={activeStats}
           friends={activeFriends}
           invites={activeInvites}
           loading={dataLoading}
-          isRemote={isRemote}
+          isRemote={isRemote || isDemo}
           pass={activePass}
         />
       );

@@ -488,3 +488,239 @@ export const rewardCampaigns = [
     status: 'active',
   },
 ];
+
+export const demoProfile = {
+  id: 'demo-user-bernardo',
+  name: 'Bernardo Allen',
+  email: 'bernardo@loopout.demo',
+  username: 'bernardo',
+  city: 'Lisbon',
+  area: 'Saldanha',
+  avatar: 'BA',
+};
+
+export const demoFriends = [
+  {
+    id: 'demo-friend-sofia',
+    name: 'Sofia Martins',
+    avatar: 'SM',
+    status: 'Offline now',
+    area: 'Chiado',
+    available: true,
+    isOffline: true,
+    lockedApp: 'Instagram',
+    remainingMinutes: 18,
+    email: 'sofia@loopout.demo',
+    username: 'sofia',
+  },
+  {
+    id: 'demo-friend-tomas',
+    name: 'Tomas Ribeiro',
+    avatar: 'TR',
+    status: 'Free in 20 min',
+    area: 'Saldanha',
+    available: true,
+    isOffline: true,
+    lockedApp: 'TikTok',
+    remainingMinutes: 20,
+    email: 'tomas@loopout.demo',
+    username: 'tomas',
+  },
+  {
+    id: 'demo-friend-ines',
+    name: 'Ines Costa',
+    avatar: 'IC',
+    status: 'Planning later',
+    area: 'Alvalade',
+    available: false,
+    isOffline: false,
+    lockedApp: '',
+    remainingMinutes: 0,
+    email: 'ines@loopout.demo',
+    username: 'ines',
+  },
+  {
+    id: 'demo-friend-miguel',
+    name: 'Miguel Santos',
+    avatar: 'MS',
+    status: 'Available to meet',
+    area: 'Belem',
+    available: true,
+    isOffline: true,
+    lockedApp: 'YouTube Shorts',
+    remainingMinutes: 24,
+    email: 'miguel@loopout.demo',
+    username: 'miguel',
+  },
+];
+
+export const demoContactMatches = [
+  { id: 'contact-maria', name: 'Maria Lopes', handle: '@maria', match: 'Uses LoopOut weekly' },
+  { id: 'contact-francisco', name: 'Francisco Neves', handle: '@francisco', match: '2 mutual friends' },
+  { id: 'contact-rita', name: 'Rita Almeida', handle: '@rita', match: 'Ready for phone-free coffee' },
+];
+
+export const demoEvents = [
+  {
+    id: 'event-coffee-saldanha',
+    title: 'Phone-free coffee meetup',
+    host: 'LoopOut Cafe Saldanha',
+    location: 'Saldanha',
+    time: 'Today, 17:30',
+    category: 'Coffee meetup',
+    reward: '15% off drinks',
+    attendees: 18,
+  },
+  {
+    id: 'event-gulbenkian-walk',
+    title: 'Walk in Gulbenkian Gardens',
+    host: 'LoopOut Community',
+    location: 'Gulbenkian',
+    time: 'Saturday, 11:00',
+    category: 'Walk',
+    reward: 'Group boost eligible',
+    attendees: 32,
+  },
+  {
+    id: 'event-campus-focus',
+    title: 'Campus focus challenge',
+    host: 'Lisbon International School',
+    location: 'Library',
+    time: 'Monday, 09:15',
+    category: 'Campus challenge',
+    reward: 'Digital wellbeing badge',
+    attendees: 124,
+  },
+];
+
+export const demoNotifications = [
+  { id: 'note-lock', title: 'Lock started', body: 'Instagram is protected for 24 min.', type: 'personal' },
+  { id: 'note-pass', title: 'LoopOut Pass earned', body: '15% off is active at LoopOut Cafe Saldanha.', type: 'reward' },
+  { id: 'note-invite', title: 'Sofia invited you offline', body: 'Chiado quiet cafe area, today at 17:30.', type: 'friends' },
+  { id: 'note-class', title: 'Classroom focus started', body: '11B Economics has 21 of 24 students active.', type: 'education' },
+];
+
+export const demoProgressStats = {
+  completedSessions: 12,
+  totalIntentionalMinutes: 184,
+  totalLockMinutes: 310,
+  mostUsedApp: 'Instagram',
+  mostCommonPurpose: 'reply',
+  weeklySaved: [28, 42, 35, 58, 46, 62, 39],
+  currentStreak: 5,
+  invitesSent: 8,
+  invitesAccepted: 4,
+  estimatedTimeSaved: 310,
+  sessionsByApp: [
+    { label: 'Instagram', value: 42 },
+    { label: 'TikTok', value: 26 },
+    { label: 'YouTube', value: 18 },
+    { label: 'Snapchat', value: 14 },
+  ],
+  today: {
+    completedSessions: 3,
+    intentionalMinutes: 38,
+    lockMinutes: 72,
+  },
+};
+
+export const demoBusinessMetrics = {
+  qrScans: 428,
+  rewardsRedeemed: 176,
+  invalidScans: 21,
+  groupVisits: 64,
+  repeatVisitors: 42,
+  estimatedCustomers: 238,
+  estimatedRevenue: '€3.8k',
+  activeCampaigns: 5,
+  upcomingEvents: 3,
+  bestCampaign: '20% off for groups of 3+',
+  bestTime: '15:00-18:00',
+  scansOverTime: [28, 46, 39, 68, 74, 92, 81],
+  campaignSplit: [
+    ['10% off', 38],
+    ['Group reward', 27],
+    ['Free cookie', 19],
+    ['Upgrade', 16],
+  ],
+};
+
+export const demoEducation = {
+  institution: 'Lisbon International School',
+  teachers: ['Prof. Sofia Almeida', 'Prof. Joao Martins', 'Prof. Clara Costa'],
+  classes: ['11B Economics', '10A English', '12C Study Hall'],
+  rooms: ['Room 2.1', 'Room 3.4', 'Library', 'Auditorium'],
+  activeSession: {
+    id: 'edu-focus-11b',
+    className: '11B Economics',
+    subject: 'Economics',
+    room: 'Room 2.1',
+    teacher: 'Prof. Sofia Almeida',
+    time: '09:15-10:45',
+    blockedApps: ['TikTok', 'Instagram', 'Snapchat', 'YouTube Shorts'],
+    allowedApps: ['Calculator', 'Dictionary'],
+    strictness: 'Guided',
+    note: 'Focus without taking phones away.',
+    studentsActive: 21,
+    studentsTotal: 24,
+    publicCode: 'CLASS-11B-FOCUS',
+  },
+  studentStatuses: [
+    { name: 'Leonor P.', status: 'Focus Active', joinedAt: '09:16', remaining: '42 min' },
+    { name: 'Duarte M.', status: 'Focus Active', joinedAt: '09:15', remaining: '42 min' },
+    { name: 'Marta S.', status: 'Joined Late', joinedAt: '09:24', remaining: '42 min' },
+    { name: 'Afonso R.', status: 'Not Joined', joinedAt: '-', remaining: '-' },
+    { name: 'Beatriz C.', status: 'Completed', joinedAt: '09:15', remaining: 'Done' },
+  ],
+  schedules: [
+    { title: 'Economics A', time: 'Monday 09:15-10:45', room: 'Room 2.1', rule: 'Focus Mode' },
+    { title: 'Study Hall', time: 'Weekdays 14:00-16:00', room: 'Library', rule: 'Voluntary focus' },
+    { title: 'Library Focus', time: '08:00-18:00', room: 'Library', rule: 'QR study rooms' },
+    { title: 'Exam Mode', time: 'Custom dates', room: 'Auditorium', rule: 'Strict classroom session' },
+  ],
+  seminars: [
+    { title: 'Social media and mental health', audience: 'Students', date: 'Oct 14', speaker: 'LoopOut Wellbeing Team', status: 'Scheduled', score: '4.8/5' },
+    { title: 'Sleep and screen time', audience: 'Parents', date: 'Nov 04', speaker: 'Guest psychologist', status: 'Planning', score: '-' },
+    { title: 'Focus and study habits', audience: 'Teachers', date: 'Nov 21', speaker: 'Prof. Clara Costa', status: 'Scheduled', score: '4.7/5' },
+  ],
+  certificate: {
+    name: 'LoopOut Digital Wellbeing Partner',
+    status: 'Pilot approved',
+    issueDate: 'Sep 12',
+    renewalDate: 'Next semester',
+    requirements: [
+      'Classroom focus pilot',
+      'Student digital wellbeing seminar',
+      'Teacher onboarding session',
+      'Basic privacy policy',
+      'Student feedback survey',
+      'Semester report',
+    ],
+  },
+};
+
+export const pricingPlans = [
+  {
+    line: 'Personal',
+    plans: [
+      { name: 'Free', price: '€0', features: ['Purpose timer', 'Simulated lock', 'Limited friends', 'Public places'] },
+      { name: 'Premium', price: '€4.99/mo', features: ['Advanced analytics', 'Friend groups', 'Exclusive rewards', 'Unlimited sessions'] },
+    ],
+  },
+  {
+    line: 'Business',
+    plans: [
+      { name: 'Free Pilot', price: '€0', features: ['Basic listing', 'Limited campaigns', 'Limited scans'] },
+      { name: 'Partner', price: '€49/mo', features: ['Verified listing', 'QR rewards', 'Analytics', 'Events'] },
+      { name: 'Featured', price: 'Custom', features: ['Priority placement', 'Promoted campaigns', 'Advanced insights'] },
+    ],
+  },
+  {
+    line: 'Education',
+    plans: [
+      { name: 'Basic', price: 'Pilot', features: ['Teacher dashboards', 'Classroom QR sessions', 'Basic reports'] },
+      { name: 'Plus', price: 'Annual', features: ['School dashboard', 'Certificate', 'One seminar per semester'] },
+      { name: 'Premium', price: 'Custom', features: ['Parent workshops', 'Teacher training', 'Campus events', 'Priority support'] },
+    ],
+  },
+];

@@ -2137,21 +2137,21 @@ function BusinessPage({ navigate, onDemoStart }) {
 
 function EducationPage({ navigate, onDemoStart }) {
   return (
-    <MarketingShell navigate={navigate} onDemoStart={onDemoStart} cta="Education demo">
+    <MarketingShell navigate={navigate} onDemoStart={onDemoStart} cta="Education preview">
       <MarketingHero
         eyebrow="LoopOut Education"
         title="Distraction-free classrooms. Healthier digital habits."
         subtitle="LoopOut Education helps schools and universities create focused learning environments while promoting student wellbeing, privacy and digital health education."
-        primary="Teacher demo"
-        secondary="Student demo"
+        primary="Teacher panel"
+        secondary="Student view"
         onPrimary={() => onDemoStart?.('teacher')}
         onSecondary={() => onDemoStart?.('student')}
         icon={BookOpen}
       />
       <section className="grid gap-4 py-8 md:grid-cols-3">
         {[
-          ['Student lock screen', 'Students see only the current classroom block, the time window and the apps blocked for that lesson.'],
-          ['Teacher QR attendance', 'Teachers see who scanned the class QR code and who has not joined yet.'],
+          ['Student classroom lock', 'Students scan the class QR and see only the current focus block, time window and blocked apps.'],
+          ['Teacher QR attendance', 'Teachers see who joined the class session and who still has not scanned.'],
           ['Privacy boundary', 'Teachers do not see private app usage, friends, places or personal LoopOut sessions.'],
         ].map(([title, body]) => (
           <InfoPanel eyebrow="Education" title={title} body={body} icon={ShieldCheck} key={title} />
@@ -2235,7 +2235,7 @@ function TrustPage({ navigate, onDemoStart }) {
         title="Digital wellbeing without shame or surveillance."
         subtitle="LoopOut helps people choose better habits. Partners and schools only receive the minimum information needed for rewards or classroom participation."
         primary="Open roadmap"
-        secondary="Education demo"
+        secondary="Education preview"
         onPrimary={() => navigate('/roadmap')}
         onSecondary={() => onDemoStart?.('teacher')}
         icon={ShieldCheck}
@@ -2308,14 +2308,12 @@ function DemoModeSwitcher({ role, navigate, onStartDemo }) {
   const items = [
     ['Personal', 'personal', '/dashboard', CircleUserRound],
     ['Business', 'business', '/business/dashboard', Store],
-    ['Student', 'student', '/dashboard', LockKeyhole],
-    ['Teacher', 'teacher', '/education/dashboard', BookOpen],
   ];
 
   return (
     <section className="mb-4 rounded-lg border border-line bg-white p-3 shadow-sm">
       <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-[0.12em] text-primary">Demo switcher</p>
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         {items.map(([label, value, href, Icon]) => (
           <button
             type="button"
@@ -2489,6 +2487,7 @@ function StudentBlockedHomePage({ navigate, now }) {
   const education = demoEducation;
   const session = education.activeSession;
   const scannedStudent = education.studentStatuses.find((student) => student.scanned);
+  const progress = Math.min(1, Math.max(0, session.elapsedMinutes / session.durationMinutes));
 
   return (
     <>
@@ -2504,14 +2503,29 @@ function StudentBlockedHomePage({ navigate, now }) {
         <p className="mt-5 text-sm font-semibold uppercase tracking-[0.12em] text-primary">Class focus active</p>
         <h1 className="mt-2 text-3xl font-semibold leading-tight text-ink">Your distracting apps are blocked.</h1>
         <p className="mt-3 text-sm leading-6 text-muted">
-          {session.className} is in Focus Mode from {session.time}. Keep this page open while the class session is active.
+          {session.className} is in Focus Mode from {session.startedAtLabel} to {session.endsAtLabel}. Keep this page open while the class session is active.
         </p>
+      </section>
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <div className="grid grid-cols-[auto_1fr] items-center gap-5">
+          <ProgressRing progress={progress} label={`${session.remainingMinutes}m`} />
+          <div>
+            <p className="text-sm font-semibold text-ink">{session.subject}</p>
+            <p className="mt-1 text-sm text-muted">{session.teacher} · {session.room}</p>
+            <div className="mt-3 h-2 rounded-full bg-line">
+              <div className="h-2 rounded-full bg-primary" style={{ width: `${Math.round(progress * 100)}%` }} />
+            </div>
+            <p className="mt-2 text-xs font-semibold text-deep">
+              {session.remainingMinutes} minutes left · ends at {session.endsAtLabel}
+            </p>
+          </div>
+        </div>
       </section>
       <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-ink">{session.subject}</p>
-            <p className="mt-1 text-sm text-muted">{session.teacher} · {session.room}</p>
+            <p className="text-sm font-semibold text-ink">Class QR confirmed</p>
+            <p className="mt-1 text-sm text-muted">Your phone is attached to this classroom focus session.</p>
           </div>
           <span className="rounded-full bg-soft px-3 py-1 text-xs font-semibold text-deep">Blocked now</span>
         </div>
@@ -2533,8 +2547,16 @@ function StudentBlockedHomePage({ navigate, now }) {
             <span className="rounded-full bg-soft px-3 py-1 text-sm font-semibold text-deep" key={app}>{app}</span>
           ))}
         </div>
+      </section>
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-ink">Allowed for class</h2>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {session.allowedApps.map((app) => (
+            <span className="rounded-full bg-white/70 px-3 py-1 text-sm font-semibold text-ink shadow-sm" key={app}>{app}</span>
+          ))}
+        </div>
         <p className="mt-4 rounded-lg bg-canvas p-3 text-sm leading-6 text-muted">
-          The student account is intentionally simple: no friends, no places and no personal session controls during a classroom block.
+          Education mode is not a social profile. There are no friends, places, passes or personal session controls while a classroom block is active.
         </p>
       </section>
     </>
@@ -2544,8 +2566,25 @@ function StudentBlockedHomePage({ navigate, now }) {
 function EducationDashboardPage({ navigate }) {
   const education = demoEducation;
   const session = education.activeSession;
-  const scannedStudents = education.studentStatuses.filter((student) => student.scanned);
-  const missingStudents = education.studentStatuses.filter((student) => !student.scanned);
+  const [query, setQuery] = useState('');
+  const [copyStatus, setCopyStatus] = useState('');
+  const normalizedQuery = query.trim().toLowerCase();
+  const roster = education.studentStatuses.filter((student) => student.name.toLowerCase().includes(normalizedQuery));
+  const scannedStudents = roster.filter((student) => student.scanned);
+  const missingStudents = roster.filter((student) => !student.scanned);
+  const scannedTotal = education.studentStatuses.filter((student) => student.scanned).length;
+  const missingTotal = education.studentStatuses.length - scannedTotal;
+  const attendanceProgress = scannedTotal / Math.max(1, education.studentStatuses.length);
+
+  const copyClassCode = async () => {
+    try {
+      await navigator.clipboard?.writeText(session.publicCode);
+      setCopyStatus('Code copied');
+    } catch {
+      setCopyStatus('Code ready to copy manually');
+    }
+    window.setTimeout(() => setCopyStatus(''), 1800);
+  };
 
   return (
     <>
@@ -2556,46 +2595,103 @@ function EducationDashboardPage({ navigate }) {
       </div>
       <section className="mt-8 rounded-lg border border-line bg-white p-5 shadow-soft">
         <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">{education.institution}</p>
-        <h1 className="mt-2 text-3xl font-semibold leading-tight text-ink">Teacher QR attendance</h1>
+        <h1 className="mt-2 text-3xl font-semibold leading-tight text-ink">Teacher classroom panel</h1>
         <p className="mt-3 text-sm leading-6 text-muted">
           {session.className} · {session.subject} · {session.room} · {session.time}
         </p>
-        <div className="mt-5 rounded-lg bg-canvas p-4 text-center">
-          <QrCode className="mx-auto h-10 w-10 text-primary" />
-          <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted">Class QR code</p>
-          <p className="mt-1 text-lg font-semibold text-ink">{session.publicCode}</p>
+        <div className="mt-5 grid gap-4 sm:grid-cols-[auto_1fr]">
+          <div className="rounded-lg bg-canvas p-4 text-center">
+            <div className="mx-auto grid h-32 w-32 grid-cols-9 gap-1 rounded-[26px] bg-white p-4 shadow-sm">
+              {Array.from({ length: 81 }).map((_, index) => (
+                <span
+                  className={classNames('rounded-[3px]', index % 2 === 0 || index % 7 === 0 || index % 13 === 0 ? 'bg-ink' : 'bg-transparent')}
+                  key={index}
+                />
+              ))}
+            </div>
+            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted">Class QR code</p>
+            <p className="mt-1 text-lg font-semibold text-ink">{session.publicCode}</p>
+          </div>
+          <div className="rounded-lg bg-canvas p-4">
+            <div className="flex items-center gap-4">
+              <ProgressRing progress={attendanceProgress} label={`${scannedTotal}/${education.studentStatuses.length}`} />
+              <div>
+                <p className="text-sm font-semibold text-ink">QR attendance</p>
+                <p className="mt-1 text-sm leading-6 text-muted">
+                  Students scan once at the start of class. This panel tracks participation only.
+                </p>
+              </div>
+            </div>
+            <Button className="mt-4 w-full" variant="soft" icon={Copy} onClick={copyClassCode}>
+              {copyStatus || 'Copy class code'}
+            </Button>
+          </div>
         </div>
       </section>
       <div className="mt-4 grid grid-cols-2 gap-3">
-        <StatCard label="Scanned QR" value={`${scannedStudents.length}/${education.studentStatuses.length}`} icon={CheckCircle2} />
-        <StatCard label="Not scanned" value={missingStudents.length} icon={AlertCircle} />
+        <StatCard label="Scanned QR" value={`${scannedTotal}/${education.studentStatuses.length}`} icon={CheckCircle2} />
+        <StatCard label="Not scanned" value={missingTotal} icon={AlertCircle} />
       </div>
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-ink">Class session rules</h2>
+            <p className="mt-1 text-sm text-muted">{session.remainingMinutes} minutes left · {session.strictness} mode</p>
+          </div>
+          <span className="rounded-full bg-soft px-3 py-1 text-xs font-semibold text-deep">Active</span>
+        </div>
+        <div className="mt-4 grid gap-2">
+          <div className="rounded-lg bg-canvas p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Blocked apps</p>
+            <p className="mt-1 text-sm font-semibold text-ink">{session.blockedApps.join(', ')}</p>
+          </div>
+          <div className="rounded-lg bg-canvas p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Allowed for class</p>
+            <p className="mt-1 text-sm font-semibold text-ink">{session.allowedApps.join(', ')}</p>
+          </div>
+        </div>
+      </section>
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <label className="block">
+          <span className="text-sm font-semibold text-ink">Find student</span>
+          <input
+            className="mt-2 w-full rounded-lg border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-primary"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search roster"
+          />
+        </label>
+      </section>
       <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
         <h2 className="font-semibold text-ink">Students who scanned</h2>
         <div className="mt-3 space-y-2">
-          {scannedStudents.map((student) => (
-            <div className="grid grid-cols-[1fr_auto] gap-3 rounded-lg bg-canvas p-3" key={student.name}>
+          {scannedStudents.length ? scannedStudents.map((student) => (
+            <div className="grid grid-cols-[1fr_auto] gap-3 rounded-lg bg-canvas p-3" key={student.id}>
               <div>
                 <p className="text-sm font-semibold text-ink">{student.name}</p>
                 <p className="text-xs text-muted">Scanned at {student.joinedAt} · {student.remaining}</p>
               </div>
               <span className="rounded-full bg-soft px-2.5 py-1 text-xs font-semibold text-deep">{student.status}</span>
             </div>
-          ))}
+          )) : (
+            <p className="rounded-lg bg-canvas p-3 text-sm text-muted">No scanned students match this search.</p>
+          )}
         </div>
       </section>
       <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
         <h2 className="font-semibold text-ink">Students who have not scanned</h2>
         <div className="mt-3 space-y-2">
-          {missingStudents.map((student) => (
-            <div className="grid grid-cols-[1fr_auto] gap-3 rounded-lg bg-[#FFF7E6] p-3" key={student.name}>
+          {missingStudents.length ? missingStudents.map((student) => (
+            <div className="grid grid-cols-[1fr_auto] gap-3 rounded-lg bg-[#FFF7E6] p-3" key={student.id}>
               <div>
                 <p className="text-sm font-semibold text-ink">{student.name}</p>
                 <p className="text-xs text-muted">Waiting for QR scan</p>
               </div>
               <span className="rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-[#B54708]">{student.status}</span>
             </div>
-          ))}
+          )) : (
+            <p className="rounded-lg bg-canvas p-3 text-sm text-muted">Everyone in this filtered list has scanned.</p>
+          )}
         </div>
         <p className="mt-4 rounded-lg bg-canvas p-3 text-sm leading-6 text-muted">
           Teachers only see whether students joined the classroom QR session. They do not see personal app usage, friends, places or private sessions.
@@ -2747,16 +2843,16 @@ function AuthPage({ navigate, profile, onAuthReady, returnTo, onDemoStart }) {
               Business demo
             </Button>
             <Button variant="secondary" className="px-3" icon={LockKeyhole} onClick={() => onDemoStart?.('student')}>
-              Student demo
+              Student view
             </Button>
             <Button variant="secondary" className="px-3" icon={BookOpen} onClick={() => onDemoStart?.('teacher')}>
-              Teacher demo
+              Teacher panel
             </Button>
           </div>
           <div className="mt-5 rounded-lg bg-canvas p-3">
             <p className="text-sm font-semibold text-ink">Account type</p>
-            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {['Personal', 'Business', 'Student', 'Teacher'].map((type) => (
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {['Personal', 'Business', 'Education'].map((type) => (
                 <button
                   type="button"
                   className={classNames(
@@ -2771,7 +2867,7 @@ function AuthPage({ navigate, profile, onAuthReady, returnTo, onDemoStart }) {
               ))}
             </div>
             <p className="mt-3 text-xs leading-5 text-muted">
-              Business, Student and Teacher roles are available in demo mode; Supabase role tables can be connected later.
+              Education uses classroom roles after a QR session starts. It does not create separate demo profiles.
             </p>
           </div>
           {supabaseConfigWarning ? (
@@ -5175,7 +5271,7 @@ function SettingsPage({
       <SettingsGroup title="Data" icon={UploadCloud}>
         {isDemo ? (
           <div className="rounded-lg bg-soft p-3 text-sm leading-6 text-deep">
-            Demo mode active: {demoRole}. Changes are stored locally on this device.
+            Preview mode active: {demoRole}. Changes are stored locally on this device.
           </div>
         ) : null}
         <div className="grid grid-cols-2 gap-2">
@@ -5186,10 +5282,10 @@ function SettingsPage({
             Business demo
           </Button>
           <Button variant="secondary" className="px-3" icon={LockKeyhole} onClick={() => onStartDemo?.('student')}>
-            Student demo
+            Student view
           </Button>
           <Button variant="secondary" className="px-3" icon={BookOpen} onClick={() => onStartDemo?.('teacher')}>
-            Teacher demo
+            Teacher panel
           </Button>
         </div>
         {isDemo ? (
@@ -5450,10 +5546,10 @@ function BackendRequiredScreen({ navigate, onDemoStart }) {
               Business
             </Button>
             <Button variant="secondary" className="px-3" icon={LockKeyhole} onClick={() => onDemoStart?.('student')}>
-              Student
+              Student view
             </Button>
             <Button variant="secondary" className="px-3" icon={BookOpen} onClick={() => onDemoStart?.('teacher')}>
-              Teacher
+              Teacher panel
             </Button>
           </div>
           <Button className="mt-5 w-full" variant="soft" icon={Copy} onClick={() => navigate('/setup-iphone')}>
@@ -5512,12 +5608,13 @@ export default function App() {
   const isRemote = isSupabaseConfigured && Boolean(authUser);
   const isDemo = Boolean(demoMode) && !isRemote;
   const activeDemoRole = demoRole === 'school' ? 'teacher' : demoRole;
+  const isEducationRole = isDemo && (activeDemoRole === 'student' || activeDemoRole === 'teacher');
   const demoUserId = demoProfile.id;
-  const activeProfile = isDemo ? demoProfile : profile;
-  const activeFriends = isRemote ? remoteFriends : isDemo ? demoFriendList : [];
-  const activeInvites = isRemote ? remoteInvites : invites;
+  const activeProfile = isDemo && !isEducationRole ? demoProfile : profile;
+  const activeFriends = isRemote ? remoteFriends : isDemo && !isEducationRole ? demoFriendList : [];
+  const activeInvites = isRemote ? remoteInvites : isEducationRole ? [] : invites;
   const activePlaces = places.length ? places : lisbonPlaces;
-  const activeStats = isDemo ? demoProgressStats : progressStats || fallbackProgressSnapshot(session, activeInvites, screenTimeLogs);
+  const activeStats = isDemo && !isEducationRole ? demoProgressStats : progressStats || fallbackProgressSnapshot(session, activeInvites, screenTimeLogs);
   const requestedAppId = searchParams.get('app');
   const currentRoute = `${path}${search}`;
   const activePass = getActivePassForSession(passes, session, now);
@@ -5536,15 +5633,27 @@ export default function App() {
 
   const startDemo = useCallback(
     (role = 'personal') => {
-      const nextSession = createDemoLockedSession();
-      const nextPass = createDemoPass(nextSession);
+      const normalizedRole = role === 'school' ? 'teacher' : role;
       setDemoMode(true);
-      setDemoRole(role === 'school' ? 'teacher' : role);
+      setDemoRole(normalizedRole);
       setAuthUser(null);
       setRemoteFriends([]);
       setFriendRequests([]);
       setRemoteInvites([]);
       setProgressStats(null);
+
+      if (normalizedRole === 'student' || normalizedRole === 'teacher') {
+        setDemoFriendList([]);
+        setDemoFriendRequests([]);
+        setInvites([]);
+        setPasses([]);
+        setSession(null);
+        navigate(normalizedRole === 'teacher' ? '/education/dashboard' : '/dashboard');
+        return;
+      }
+
+      const nextSession = createDemoLockedSession();
+      const nextPass = createDemoPass(nextSession);
       setProfile(demoProfile);
       setSettings((current) => ({ ...current, ...defaultSettings }));
       setDemoFriendList(demoFriends);
@@ -5563,10 +5672,7 @@ export default function App() {
         const withoutDemo = current.filter((item) => item.sessionId !== getSessionKey(nextSession));
         return [nextPass, ...withoutDemo];
       });
-      const normalizedRole = role === 'school' ? 'teacher' : role;
       if (normalizedRole === 'business') navigate('/business/dashboard');
-      else if (normalizedRole === 'teacher') navigate('/education/dashboard');
-      else if (normalizedRole === 'student') navigate('/dashboard');
       else navigate('/dashboard');
     },
     [
@@ -5584,6 +5690,16 @@ export default function App() {
   );
 
   const resetDemoData = useCallback(() => {
+    if (activeDemoRole === 'student' || activeDemoRole === 'teacher') {
+      setDemoFriendList([]);
+      setDemoFriendRequests([]);
+      setInvites([]);
+      setScanEvents([]);
+      setSession(null);
+      setPasses([]);
+      return;
+    }
+
     const nextSession = createDemoLockedSession();
     const nextPass = createDemoPass(nextSession);
     setDemoFriendList(demoFriends);
@@ -5600,7 +5716,7 @@ export default function App() {
     setScanEvents([]);
     setSession(nextSession);
     setPasses([nextPass]);
-  }, [setDemoFriendList, setDemoFriendRequests, setInvites, setPasses, setScanEvents, setSession]);
+  }, [activeDemoRole, setDemoFriendList, setDemoFriendRequests, setInvites, setPasses, setScanEvents, setSession]);
 
   useEffect(() => {
     if (path !== '/session/purpose' || !isKnownAppId(requestedAppId)) return;
@@ -6271,17 +6387,17 @@ export default function App() {
 
     if (isDemo && activeDemoRole === 'student') {
       return (
-        <AppShell navigate={navigate} path="/dashboard" session={session} role="student">
+        <RoleLockedShell navigate={navigate} path={path} targetPath="/dashboard" session={session} role="student">
           <StudentBlockedHomePage navigate={navigate} now={now} />
-        </AppShell>
+        </RoleLockedShell>
       );
     }
 
     if (isDemo && activeDemoRole === 'teacher') {
       return (
-        <AppShell navigate={navigate} path="/education/dashboard" session={session} role="teacher">
+        <RoleLockedShell navigate={navigate} path={path} targetPath="/education/dashboard" session={session} role="teacher">
           <EducationDashboardPage navigate={navigate} />
-        </AppShell>
+        </RoleLockedShell>
       );
     }
 

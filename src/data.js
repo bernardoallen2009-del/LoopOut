@@ -666,11 +666,11 @@ export const demoEducation = {
     publicCode: 'CLASS-11B-FOCUS',
   },
   studentStatuses: [
-    { name: 'Leonor P.', status: 'Focus Active', joinedAt: '09:16', remaining: '42 min' },
-    { name: 'Duarte M.', status: 'Focus Active', joinedAt: '09:15', remaining: '42 min' },
-    { name: 'Marta S.', status: 'Joined Late', joinedAt: '09:24', remaining: '42 min' },
-    { name: 'Afonso R.', status: 'Not Joined', joinedAt: '-', remaining: '-' },
-    { name: 'Beatriz C.', status: 'Completed', joinedAt: '09:15', remaining: 'Done' },
+    { name: 'Leonor P.', status: 'Scanned', scanned: true, joinedAt: '09:16', remaining: '42 min' },
+    { name: 'Duarte M.', status: 'Scanned', scanned: true, joinedAt: '09:15', remaining: '42 min' },
+    { name: 'Marta S.', status: 'Scanned late', scanned: true, joinedAt: '09:24', remaining: '42 min' },
+    { name: 'Afonso R.', status: 'Not scanned', scanned: false, joinedAt: '-', remaining: '-' },
+    { name: 'Beatriz C.', status: 'Scanned', scanned: true, joinedAt: '09:15', remaining: 'Done' },
   ],
   schedules: [
     { title: 'Economics A', time: 'Monday 09:15-10:45', room: 'Room 2.1', rule: 'Focus Mode' },

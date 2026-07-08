@@ -161,6 +161,24 @@ function getCurrentRoute() {
   };
 }
 
+function isPublicRoutePath(path) {
+  return [
+    '/',
+    '/platform',
+    '/business',
+    '/education',
+    '/pricing',
+    '/events',
+    '/trust',
+    '/roadmap',
+    '/partners',
+    '/partners/suggest',
+    '/onboarding',
+    '/login',
+    '/setup-iphone',
+  ].includes(path);
+}
+
 function useRoute() {
   const [route, setRoute] = useState(getCurrentRoute);
 
@@ -2041,7 +2059,7 @@ function ProductLinesPage({ navigate, onDemoStart }) {
     },
     {
       title: 'LoopOut Education',
-      body: 'Classroom QR focus mode, teacher dashboards, school reports, certificates, seminars and campus wellbeing programs.',
+      body: 'A simple student lock screen and a focused teacher QR attendance panel for classroom sessions.',
       icon: BookOpen,
       action: () => onDemoStart?.('teacher'),
     },
@@ -2124,17 +2142,17 @@ function EducationPage({ navigate, onDemoStart }) {
         eyebrow="LoopOut Education"
         title="Distraction-free classrooms. Healthier digital habits."
         subtitle="LoopOut Education helps schools and universities create focused learning environments while promoting student wellbeing, privacy and digital health education."
-        primary="View Education demo"
-        secondary="Book a pilot"
+        primary="Teacher demo"
+        secondary="Student demo"
         onPrimary={() => onDemoStart?.('teacher')}
-        onSecondary={() => navigate('/partners/suggest')}
+        onSecondary={() => onDemoStart?.('student')}
         icon={BookOpen}
       />
       <section className="grid gap-4 py-8 md:grid-cols-3">
         {[
-          ['Classroom Focus Mode', 'Teachers create QR sessions with blocked app lists and privacy-friendly participation.'],
-          ['School Admin Dashboard', 'Institutions see aggregate participation, schedules, reports and wellbeing program status.'],
-          ['Certificates and seminars', 'Digital wellbeing partner badges, student seminars, parent workshops and teacher training.'],
+          ['Student lock screen', 'Students see only the current classroom block, the time window and the apps blocked for that lesson.'],
+          ['Teacher QR attendance', 'Teachers see who scanned the class QR code and who has not joined yet.'],
+          ['Privacy boundary', 'Teachers do not see private app usage, friends, places or personal LoopOut sessions.'],
         ].map(([title, body]) => (
           <InfoPanel eyebrow="Education" title={title} body={body} icon={ShieldCheck} key={title} />
         ))}
@@ -2290,8 +2308,8 @@ function DemoModeSwitcher({ role, navigate, onStartDemo }) {
   const items = [
     ['Personal', 'personal', '/dashboard', CircleUserRound],
     ['Business', 'business', '/business/dashboard', Store],
+    ['Student', 'student', '/dashboard', LockKeyhole],
     ['Teacher', 'teacher', '/education/dashboard', BookOpen],
-    ['School', 'school', '/education/dashboard?role=school', Building2],
   ];
 
   return (
@@ -2467,199 +2485,122 @@ function MiniBarChart({ values = [] }) {
   );
 }
 
-function EducationDashboardPage({ navigate, role = 'teacher', onStartDemo }) {
+function StudentBlockedHomePage({ navigate, now }) {
   const education = demoEducation;
-  const isSchool = role === 'school';
   const session = education.activeSession;
+  const scannedStudent = education.studentStatuses.find((student) => student.scanned);
 
   return (
     <>
-      <PageHeader
-        title={isSchool ? 'School admin demo' : 'Teacher demo'}
-        subtitle="Classroom focus and wellbeing programs."
-        navigate={navigate}
-        backTo="/dashboard"
-      />
-      <DemoModeSwitcher role={role} navigate={navigate} onStartDemo={onStartDemo} />
-      <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
-        <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">{education.institution}</p>
-        <h1 className="mt-2 text-3xl font-semibold leading-tight text-ink">
-          {isSchool ? 'Digital wellbeing overview.' : 'Create classroom Focus Mode.'}
-        </h1>
-        <p className="mt-3 text-sm leading-6 text-muted">
-          Focus without taking phones away. The demo tracks participation, not private phone activity.
-        </p>
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <Button variant="soft" icon={QrCode} onClick={() => navigate('/education/classroom')}>
-            Classroom QR
-          </Button>
-          <Button variant="secondary" icon={Calendar} onClick={() => navigate('/education/schedules')}>
-            Schedules
-          </Button>
-        </div>
-      </section>
-      <section className="mt-4 rounded-lg border border-line bg-white p-4 shadow-sm">
-        <p className="text-sm font-semibold text-ink">Education navigation</p>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {[
-            ['Overview', '/education/dashboard'],
-            ['Classes', '/education/classroom'],
-            ['Schedules', '/education/schedules'],
-            ['Certificates', '/education/certificates'],
-            ['Seminars', '/education/seminars'],
-            ['Reports', '/progress'],
-          ].map(([label, href]) => (
-            <button type="button" className="rounded-lg bg-canvas p-3 text-left text-sm font-semibold text-deep" key={label} onClick={() => navigate(href)}>
-              {label}
-            </button>
-          ))}
-        </div>
-      </section>
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        <StatCard label="Active classrooms" value="3" icon={BookOpen} />
-        <StatCard label="Students active" value={`${session.studentsActive}/${session.studentsTotal}`} icon={Users} />
-        <StatCard label="Focus minutes" value="4.2k" icon={Timer} />
-        <StatCard label="Teachers onboarded" value={education.teachers.length} icon={UserPlus} />
+      <div className="pt-[calc(env(safe-area-inset-top)+22px)]">
+        <button type="button" onClick={() => navigate('/')} aria-label="LoopOut home">
+          <BrandMark />
+        </button>
       </div>
+      <section className="mt-8 rounded-lg border border-line bg-white p-6 text-center shadow-soft">
+        <div className="mx-auto grid h-16 w-16 place-items-center rounded-[22px] bg-soft text-primary shadow-sm">
+          <LockKeyhole className="h-8 w-8" />
+        </div>
+        <p className="mt-5 text-sm font-semibold uppercase tracking-[0.12em] text-primary">Class focus active</p>
+        <h1 className="mt-2 text-3xl font-semibold leading-tight text-ink">Your distracting apps are blocked.</h1>
+        <p className="mt-3 text-sm leading-6 text-muted">
+          {session.className} is in Focus Mode from {session.time}. Keep this page open while the class session is active.
+        </p>
+      </section>
       <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
-        <h2 className="font-semibold text-ink">Active session</h2>
-        <div className="mt-3 rounded-lg bg-canvas p-4">
-          <p className="text-lg font-semibold text-ink">{session.className} · {session.subject}</p>
-          <p className="mt-1 text-sm text-muted">{session.teacher} · {session.room} · {session.time}</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {session.blockedApps.map((app) => (
-              <span className="rounded-full bg-soft px-3 py-1 text-xs font-semibold text-deep" key={app}>{app}</span>
-            ))}
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-ink">{session.subject}</p>
+            <p className="mt-1 text-sm text-muted">{session.teacher} · {session.room}</p>
+          </div>
+          <span className="rounded-full bg-soft px-3 py-1 text-xs font-semibold text-deep">Blocked now</span>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <div className="rounded-lg bg-canvas p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">QR scan</p>
+            <p className="mt-1 text-sm font-semibold text-ink">Confirmed {scannedStudent?.joinedAt || 'now'}</p>
+          </div>
+          <div className="rounded-lg bg-canvas p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Updated</p>
+            <p className="mt-1 text-sm font-semibold text-ink">{formatTime(now)}</p>
           </div>
         </div>
       </section>
       <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
-        <h2 className="font-semibold text-ink">Live classroom status</h2>
-        <div className="mt-3 space-y-2">
-          {education.studentStatuses.map((student) => (
-            <div className="grid grid-cols-[1fr_auto] gap-3 rounded-lg bg-canvas p-3" key={student.name}>
-              <div>
-                <p className="text-sm font-semibold text-ink">{student.name}</p>
-                <p className="text-xs text-muted">Joined: {student.joinedAt} · Remaining: {student.remaining}</p>
-              </div>
-              <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold text-deep">{student.status}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-    </>
-  );
-}
-
-function ClassroomFocusPage({ navigate }) {
-  const session = demoEducation.activeSession;
-  return (
-    <>
-      <PageHeader title="Classroom QR Focus" subtitle="Demo classroom session." navigate={navigate} backTo="/education/dashboard" />
-      <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
-        <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">Focus Mode</p>
-        <h1 className="mt-2 text-2xl font-semibold text-ink">{session.className}</h1>
-        <p className="mt-2 text-sm leading-6 text-muted">{session.teacher} · {session.room} · {session.time}</p>
-        <div className="mx-auto mt-5 grid h-48 w-48 grid-cols-9 gap-1 rounded-[28px] bg-white p-5 shadow-sm">
-          {Array.from({ length: 81 }).map((_, index) => (
-            <span className={classNames('rounded-[3px]', index % 2 === 0 || index % 7 === 0 ? 'bg-ink' : 'bg-transparent')} key={index} />
-          ))}
-        </div>
-        <p className="mt-4 text-center text-sm font-semibold text-deep">{session.publicCode}</p>
-        <Button className="mt-5 w-full" icon={Play}>
-          Start Focus Mode
-        </Button>
-      </section>
-      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
-        <h2 className="font-semibold text-ink">Blocked apps for this class</h2>
+        <h2 className="font-semibold text-ink">Blocked during this class</h2>
         <div className="mt-3 flex flex-wrap gap-2">
           {session.blockedApps.map((app) => (
             <span className="rounded-full bg-soft px-3 py-1 text-sm font-semibold text-deep" key={app}>{app}</span>
           ))}
         </div>
         <p className="mt-4 rounded-lg bg-canvas p-3 text-sm leading-6 text-muted">
-          Demo note: this website cannot enforce device-level blocking. Native classroom enforcement is a future app feature.
+          The student account is intentionally simple: no friends, no places and no personal session controls during a classroom block.
         </p>
       </section>
     </>
   );
 }
 
-function EducationSchedulesPage({ navigate }) {
-  return (
-    <>
-      <PageHeader title="Education schedules" subtitle="Weekly and recurring focus sessions." navigate={navigate} backTo="/education/dashboard" />
-      <div className="space-y-3">
-        {demoEducation.schedules.map((item) => (
-          <div className="rounded-lg border border-line bg-white p-4 shadow-sm" key={item.title}>
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="font-semibold text-ink">{item.title}</p>
-                <p className="mt-1 text-sm text-muted">{item.time} · {item.room}</p>
-              </div>
-              <span className="rounded-full bg-soft px-3 py-1 text-xs font-semibold text-deep">{item.rule}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
+function EducationDashboardPage({ navigate }) {
+  const education = demoEducation;
+  const session = education.activeSession;
+  const scannedStudents = education.studentStatuses.filter((student) => student.scanned);
+  const missingStudents = education.studentStatuses.filter((student) => !student.scanned);
 
-function EducationCertificatesPage({ navigate }) {
-  const certificate = demoEducation.certificate;
   return (
     <>
-      <PageHeader title="Certificates" subtitle="Digital wellbeing partner status." navigate={navigate} backTo="/education/dashboard" />
-      <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
-        <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">{certificate.status}</p>
-        <h1 className="mt-2 text-2xl font-semibold text-ink">{certificate.name}</h1>
+      <div className="pt-[calc(env(safe-area-inset-top)+22px)]">
+        <button type="button" onClick={() => navigate('/')} aria-label="LoopOut home">
+          <BrandMark />
+        </button>
+      </div>
+      <section className="mt-8 rounded-lg border border-line bg-white p-5 shadow-soft">
+        <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">{education.institution}</p>
+        <h1 className="mt-2 text-3xl font-semibold leading-tight text-ink">Teacher QR attendance</h1>
         <p className="mt-3 text-sm leading-6 text-muted">
-          This institution is committed to helping students build healthier digital habits, reduce classroom distractions and strengthen real-life connection.
+          {session.className} · {session.subject} · {session.room} · {session.time}
         </p>
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <div className="rounded-lg bg-canvas p-3">
-            <p className="text-xs text-muted">Issue date</p>
-            <p className="font-semibold text-ink">{certificate.issueDate}</p>
-          </div>
-          <div className="rounded-lg bg-canvas p-3">
-            <p className="text-xs text-muted">Renewal</p>
-            <p className="font-semibold text-ink">{certificate.renewalDate}</p>
-          </div>
+        <div className="mt-5 rounded-lg bg-canvas p-4 text-center">
+          <QrCode className="mx-auto h-10 w-10 text-primary" />
+          <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted">Class QR code</p>
+          <p className="mt-1 text-lg font-semibold text-ink">{session.publicCode}</p>
         </div>
       </section>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <StatCard label="Scanned QR" value={`${scannedStudents.length}/${education.studentStatuses.length}`} icon={CheckCircle2} />
+        <StatCard label="Not scanned" value={missingStudents.length} icon={AlertCircle} />
+      </div>
       <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
-        <h2 className="font-semibold text-ink">Requirements checklist</h2>
+        <h2 className="font-semibold text-ink">Students who scanned</h2>
         <div className="mt-3 space-y-2">
-          {certificate.requirements.map((item) => (
-            <div className="flex items-center gap-3 rounded-lg bg-canvas p-3" key={item}>
-              <CheckCircle2 className="h-5 w-5 text-primary" />
-              <span className="text-sm font-semibold text-ink">{item}</span>
+          {scannedStudents.map((student) => (
+            <div className="grid grid-cols-[1fr_auto] gap-3 rounded-lg bg-canvas p-3" key={student.name}>
+              <div>
+                <p className="text-sm font-semibold text-ink">{student.name}</p>
+                <p className="text-xs text-muted">Scanned at {student.joinedAt} · {student.remaining}</p>
+              </div>
+              <span className="rounded-full bg-soft px-2.5 py-1 text-xs font-semibold text-deep">{student.status}</span>
             </div>
           ))}
         </div>
       </section>
-    </>
-  );
-}
-
-function EducationSeminarsPage({ navigate }) {
-  return (
-    <>
-      <PageHeader title="Seminars" subtitle="Digital wellbeing education." navigate={navigate} backTo="/education/dashboard" />
-      <div className="space-y-3">
-        {demoEducation.seminars.map((seminar) => (
-          <div className="rounded-lg border border-line bg-white p-4 shadow-sm" key={seminar.title}>
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">{seminar.audience}</p>
-            <h2 className="mt-2 text-lg font-semibold text-ink">{seminar.title}</h2>
-            <p className="mt-2 text-sm text-muted">{seminar.date} · {seminar.speaker}</p>
-            <div className="mt-3 flex items-center justify-between rounded-lg bg-canvas p-3 text-sm">
-              <span className="font-semibold text-deep">{seminar.status}</span>
-              <span className="text-muted">Feedback {seminar.score}</span>
+      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-ink">Students who have not scanned</h2>
+        <div className="mt-3 space-y-2">
+          {missingStudents.map((student) => (
+            <div className="grid grid-cols-[1fr_auto] gap-3 rounded-lg bg-[#FFF7E6] p-3" key={student.name}>
+              <div>
+                <p className="text-sm font-semibold text-ink">{student.name}</p>
+                <p className="text-xs text-muted">Waiting for QR scan</p>
+              </div>
+              <span className="rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-[#B54708]">{student.status}</span>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+        <p className="mt-4 rounded-lg bg-canvas p-3 text-sm leading-6 text-muted">
+          Teachers only see whether students joined the classroom QR session. They do not see personal app usage, friends, places or private sessions.
+        </p>
+      </section>
     </>
   );
 }
@@ -2801,18 +2742,21 @@ function AuthPage({ navigate, profile, onAuthReady, returnTo, onDemoStart }) {
           <Button className="mt-5 w-full" variant="soft" icon={Sparkles} onClick={() => onDemoStart?.('personal')}>
             Try LoopOut demo
           </Button>
-          <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="mt-3 grid grid-cols-3 gap-2">
             <Button variant="secondary" className="px-3" icon={Store} onClick={() => onDemoStart?.('business')}>
               Business demo
             </Button>
+            <Button variant="secondary" className="px-3" icon={LockKeyhole} onClick={() => onDemoStart?.('student')}>
+              Student demo
+            </Button>
             <Button variant="secondary" className="px-3" icon={BookOpen} onClick={() => onDemoStart?.('teacher')}>
-              Education demo
+              Teacher demo
             </Button>
           </div>
           <div className="mt-5 rounded-lg bg-canvas p-3">
             <p className="text-sm font-semibold text-ink">Account type</p>
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              {['Personal', 'Business', 'Education'].map((type) => (
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {['Personal', 'Business', 'Student', 'Teacher'].map((type) => (
                 <button
                   type="button"
                   className={classNames(
@@ -2827,7 +2771,7 @@ function AuthPage({ navigate, profile, onAuthReady, returnTo, onDemoStart }) {
               ))}
             </div>
             <p className="mt-3 text-xs leading-5 text-muted">
-              Business and Education account roles are available in demo mode; Supabase role tables can be connected later.
+              Business, Student and Teacher roles are available in demo mode; Supabase role tables can be connected later.
             </p>
           </div>
           {supabaseConfigWarning ? (
@@ -2908,7 +2852,15 @@ function Field({ label, value, onChange, type = 'text' }) {
   );
 }
 
-function AppShell({ children, navigate, path, session }) {
+function AppShell({ children, navigate, path, session, role = 'personal' }) {
+  if (role === 'student' || role === 'teacher') {
+    return (
+      <div className="min-h-screen bg-canvas text-ink">
+        <main className="mx-auto max-w-md px-4 pb-10">{children}</main>
+      </div>
+    );
+  }
+
   const sessionRoute =
     session?.status === 'active' ? '/session/active' : session?.status === 'locked' ? '/session/locked' : '/session/select-app';
 
@@ -2951,6 +2903,20 @@ function AppShell({ children, navigate, path, session }) {
         </div>
       </nav>
     </div>
+  );
+}
+
+function RoleLockedShell({ children, navigate, path, targetPath, session, role }) {
+  useEffect(() => {
+    if (path === targetPath) return;
+    window.history.replaceState({}, '', targetPath);
+    window.dispatchEvent(new Event('popstate'));
+  }, [path, targetPath]);
+
+  return (
+    <AppShell navigate={navigate} path={targetPath} session={session} role={role}>
+      {children}
+    </AppShell>
   );
 }
 
@@ -5219,11 +5185,11 @@ function SettingsPage({
           <Button variant="secondary" className="px-3" icon={Store} onClick={() => onStartDemo?.('business')}>
             Business demo
           </Button>
+          <Button variant="secondary" className="px-3" icon={LockKeyhole} onClick={() => onStartDemo?.('student')}>
+            Student demo
+          </Button>
           <Button variant="secondary" className="px-3" icon={BookOpen} onClick={() => onStartDemo?.('teacher')}>
             Teacher demo
-          </Button>
-          <Button variant="secondary" className="px-3" icon={Building2} onClick={() => onStartDemo?.('school')}>
-            School demo
           </Button>
         </div>
         {isDemo ? (
@@ -5479,12 +5445,15 @@ function BackendRequiredScreen({ navigate, onDemoStart }) {
           <Button className="mt-5 w-full" icon={Sparkles} onClick={() => onDemoStart?.('personal')}>
             Continue with demo
           </Button>
-          <div className="mt-2 grid grid-cols-2 gap-2">
+          <div className="mt-2 grid grid-cols-3 gap-2">
             <Button variant="secondary" className="px-3" icon={Store} onClick={() => onDemoStart?.('business')}>
               Business
             </Button>
+            <Button variant="secondary" className="px-3" icon={LockKeyhole} onClick={() => onDemoStart?.('student')}>
+              Student
+            </Button>
             <Button variant="secondary" className="px-3" icon={BookOpen} onClick={() => onDemoStart?.('teacher')}>
-              Education
+              Teacher
             </Button>
           </div>
           <Button className="mt-5 w-full" variant="soft" icon={Copy} onClick={() => navigate('/setup-iphone')}>
@@ -5542,6 +5511,7 @@ export default function App() {
 
   const isRemote = isSupabaseConfigured && Boolean(authUser);
   const isDemo = Boolean(demoMode) && !isRemote;
+  const activeDemoRole = demoRole === 'school' ? 'teacher' : demoRole;
   const demoUserId = demoProfile.id;
   const activeProfile = isDemo ? demoProfile : profile;
   const activeFriends = isRemote ? remoteFriends : isDemo ? demoFriendList : [];
@@ -5554,12 +5524,22 @@ export default function App() {
   const offlineFriendCount = activeFriends.filter((friend) => friend.isOffline || friend.available).length;
   const allInvitePlaces = useMemo(() => buildLoopOutPlaces(activePlaces), [activePlaces]);
 
+  useEffect(() => {
+    if (!isDemo || isPublicRoutePath(path)) return;
+    if (activeDemoRole === 'student' && path !== '/dashboard') {
+      navigate('/dashboard');
+    }
+    if (activeDemoRole === 'teacher' && path !== '/education/dashboard') {
+      navigate('/education/dashboard');
+    }
+  }, [activeDemoRole, isDemo, navigate, path]);
+
   const startDemo = useCallback(
     (role = 'personal') => {
       const nextSession = createDemoLockedSession();
       const nextPass = createDemoPass(nextSession);
       setDemoMode(true);
-      setDemoRole(role);
+      setDemoRole(role === 'school' ? 'teacher' : role);
       setAuthUser(null);
       setRemoteFriends([]);
       setFriendRequests([]);
@@ -5583,8 +5563,10 @@ export default function App() {
         const withoutDemo = current.filter((item) => item.sessionId !== getSessionKey(nextSession));
         return [nextPass, ...withoutDemo];
       });
-      if (role === 'business') navigate('/business/dashboard');
-      else if (role === 'teacher' || role === 'school') navigate('/education/dashboard');
+      const normalizedRole = role === 'school' ? 'teacher' : role;
+      if (normalizedRole === 'business') navigate('/business/dashboard');
+      else if (normalizedRole === 'teacher') navigate('/education/dashboard');
+      else if (normalizedRole === 'student') navigate('/dashboard');
       else navigate('/dashboard');
     },
     [
@@ -6287,6 +6269,22 @@ export default function App() {
 
     const rewardMatch = path.match(/^\/rewards\/([^/]+)$/);
 
+    if (isDemo && activeDemoRole === 'student') {
+      return (
+        <AppShell navigate={navigate} path="/dashboard" session={session} role="student">
+          <StudentBlockedHomePage navigate={navigate} now={now} />
+        </AppShell>
+      );
+    }
+
+    if (isDemo && activeDemoRole === 'teacher') {
+      return (
+        <AppShell navigate={navigate} path="/education/dashboard" session={session} role="teacher">
+          <EducationDashboardPage navigate={navigate} />
+        </AppShell>
+      );
+    }
+
     const shellPage = (() => {
       if (path === '/dashboard') {
         return (
@@ -6399,28 +6397,19 @@ export default function App() {
             navigate={navigate}
             passes={passes}
             scanEvents={scanEvents}
-            role={demoRole}
+            role={activeDemoRole}
             onStartDemo={startDemo}
           />
         );
       }
       if (path === '/business/events') {
-        return <BusinessEventsPage navigate={navigate} role={demoRole} onStartDemo={startDemo} />;
+        return <BusinessEventsPage navigate={navigate} role={activeDemoRole} onStartDemo={startDemo} />;
       }
       if (path === '/education/dashboard') {
-        return <EducationDashboardPage navigate={navigate} role={demoRole} onStartDemo={startDemo} />;
+        return <EducationDashboardPage navigate={navigate} />;
       }
-      if (path === '/education/classroom') {
-        return <ClassroomFocusPage navigate={navigate} />;
-      }
-      if (path === '/education/schedules') {
-        return <EducationSchedulesPage navigate={navigate} />;
-      }
-      if (path === '/education/certificates') {
-        return <EducationCertificatesPage navigate={navigate} />;
-      }
-      if (path === '/education/seminars') {
-        return <EducationSeminarsPage navigate={navigate} />;
+      if (path.startsWith('/education/')) {
+        return <EducationDashboardPage navigate={navigate} />;
       }
       if (path === '/admin') {
         return <AdminPage navigate={navigate} passes={passes} partnerLeads={partnerLeads} scanEvents={scanEvents} />;
@@ -6479,7 +6468,7 @@ export default function App() {
             setSettings={setSettings}
             isRemote={isRemote}
             isDemo={isDemo}
-            demoRole={demoRole}
+            demoRole={activeDemoRole}
             onStartDemo={startDemo}
             onResetDemo={resetDemoData}
             onExitDemo={() => {
@@ -6509,7 +6498,7 @@ export default function App() {
     })();
 
     return (
-      <AppShell navigate={navigate} path={path} session={session}>
+      <AppShell navigate={navigate} path={path} session={session} role={isDemo ? activeDemoRole : 'personal'}>
         {shellPage}
       </AppShell>
     );

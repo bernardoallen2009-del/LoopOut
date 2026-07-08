@@ -694,10 +694,10 @@ function Button({ children, variant = 'primary', className, icon: Icon, disabled
     <button
       className={classNames(
         'ios-pill inline-flex min-h-12 items-center justify-center gap-2 px-5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-45',
-        variant === 'primary' && 'border border-white/10 bg-[#111111]/[0.92] text-white shadow-[0_14px_30px_rgba(0,0,0,0.16)]',
+        variant === 'primary' && 'liquid-primary border',
         variant === 'secondary' && 'border border-white/70 bg-white/45 text-ink shadow-sm backdrop-blur-2xl',
         variant === 'ghost' && 'border border-transparent bg-transparent text-deep shadow-none',
-        variant === 'soft' && 'border border-line bg-loopoutStone/20 text-ink shadow-sm',
+        variant === 'soft' && 'border border-line bg-loopoutStone/24 text-deep shadow-sm',
         className
       )}
       disabled={disabled}
@@ -770,7 +770,7 @@ function ProgressRing({ progress, label }) {
     <div className="relative grid h-56 w-56 place-items-center rounded-full border border-white/70 bg-white/55 shadow-soft backdrop-blur-2xl">
       <div
         className="absolute inset-4 rounded-full"
-        style={{ background: `conic-gradient(#2F312D ${degrees}deg, rgba(195,196,191,0.28) ${degrees}deg)` }}
+        style={{ background: `conic-gradient(#3C76F9 ${degrees}deg, rgba(157,187,254,0.3) ${degrees}deg)` }}
       />
       <div className="absolute inset-8 rounded-full bg-white/80 backdrop-blur-xl" />
       <div className="relative text-center">
@@ -1139,7 +1139,7 @@ function AppCard({ app, selected, onClick }) {
       onClick={onClick}
       className={classNames(
         'ios-card flex min-h-24 w-full items-center gap-4 p-4 text-left transition active:scale-[0.99]',
-        selected ? 'border-[#2F312D] ring-4 ring-activeBlue/15' : 'border-white/60'
+        selected ? 'border-primary ring-4 ring-activeBlue/20' : 'border-white/60'
       )}
     >
       <AppLogo app={app} />
@@ -1150,7 +1150,7 @@ function AppCard({ app, selected, onClick }) {
       <div
         className={classNames(
           'grid h-7 w-7 place-items-center rounded-full border',
-          selected ? 'border-[#2F312D] bg-[#2F312D] text-white' : 'border-line text-transparent'
+          selected ? 'border-primary bg-primary text-white' : 'border-line text-transparent'
         )}
       >
         <CheckCircle2 className="h-4 w-4" />
@@ -1384,7 +1384,7 @@ function PhoneFreeMap({ places, userLocation }) {
     if (userLocation) {
       L.circleMarker([userLocation.lat, userLocation.lng], {
         radius: 8,
-        fillColor: '#6EA8FE',
+        fillColor: '#3C76F9',
         fillOpacity: 1,
         color: '#fff',
         opacity: 1,
@@ -2546,7 +2546,7 @@ function ChoiceButton({ selected, children, onClick, className = '' }) {
       type="button"
       className={classNames(
         'ios-pill min-h-11 rounded-full border px-3 text-sm font-semibold leading-none',
-        selected ? 'border-[#2F312D] bg-[#2F312D] text-white shadow-[0_12px_26px_rgba(0,0,0,0.14)]' : 'border-white/70 bg-white/45 text-ink',
+        selected ? 'border-primary bg-primary/88 text-white shadow-[0_12px_26px_rgba(60,118,249,0.22)]' : 'border-white/70 bg-white/45 text-ink',
         className
       )}
       onClick={onClick}
@@ -4366,7 +4366,7 @@ function ToggleRow({ label, checked, onChange }) {
       <span
         className={classNames(
           'relative h-8 w-14 rounded-full border border-white/60 transition shadow-inner',
-          checked ? 'bg-[#2F312D]' : 'bg-loopoutStone/35'
+          checked ? 'bg-primary' : 'bg-loopoutStone/35'
         )}
       >
         <span

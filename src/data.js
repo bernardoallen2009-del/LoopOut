@@ -7,7 +7,7 @@ export const appOptions = [
   { id: 'netflix', name: 'Netflix', category: 'Streaming', glyph: 'Nf', logo: 'netflix', tone: '#E50914' },
   { id: 'discord', name: 'Discord', category: 'Community', glyph: 'Dc', logo: 'discord', tone: '#5865F2' },
   { id: 'games', name: 'Games', category: 'Entertainment', glyph: 'Gm', logo: 'games', tone: '#22C55E' },
-  { id: 'custom', name: 'Custom app', category: 'Your choice', glyph: '+', logo: 'custom', tone: '#6EA8FE' },
+  { id: 'custom', name: 'Custom app', category: 'Your choice', glyph: '+', logo: 'custom', tone: '#3C76F9' },
 ];
 
 export const quickTimers = [5, 10, 15, 20];

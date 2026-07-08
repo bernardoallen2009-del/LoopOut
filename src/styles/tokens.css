@@ -1,19 +1,20 @@
 :root {
-  --loopout-bg: #f7f7f4;
-  --loopout-stone: #c3c4bf;
-  --loopout-text: #111111;
-  --loopout-muted: #6f716d;
-  --loopout-dark: #2f312d;
-  --loopout-blue: #6ea8fe;
+  --loopout-bg: #f6f9ff;
+  --loopout-stone: #9dbbfe;
+  --loopout-text: #071b45;
+  --loopout-muted: #42609b;
+  --loopout-dark: #123fbc;
+  --loopout-blue: #3c76f9;
   --loopout-success: #7bae7f;
   --loopout-warning: #d7a84f;
   --loopout-error: #d96b6b;
-  --loopout-border: rgba(195, 196, 191, 0.38);
-  --loopout-surface: rgba(255, 255, 255, 0.62);
-  --loopout-glass: rgba(255, 255, 255, 0.42);
-  --loopout-card-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.76), rgba(195, 196, 191, 0.18));
-  --loopout-shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
-  --loopout-lift-shadow: 0 14px 34px rgba(0, 0, 0, 0.1);
+  --loopout-border: rgba(157, 187, 254, 0.42);
+  --loopout-surface: rgba(255, 255, 255, 0.66);
+  --loopout-glass: rgba(255, 255, 255, 0.48);
+  --loopout-card-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(157, 187, 254, 0.24));
+  --loopout-button-gradient: linear-gradient(135deg, rgba(60, 118, 249, 0.92), rgba(157, 187, 254, 0.72));
+  --loopout-shadow: 0 22px 64px rgba(60, 118, 249, 0.14);
+  --loopout-lift-shadow: 0 16px 38px rgba(60, 118, 249, 0.18);
   --loopout-radius-card: 28px;
   --loopout-radius-control: 999px;
 }
@@ -30,13 +31,22 @@
 
 .glass-button,
 .ios-pill {
-  border: 1px solid rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: var(--loopout-radius-control);
-  background: rgba(255, 255, 255, 0.45);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.08);
-  -webkit-backdrop-filter: blur(22px) saturate(180%);
-  backdrop-filter: blur(22px) saturate(180%);
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 14px 36px rgba(60, 118, 249, 0.16);
+  -webkit-backdrop-filter: blur(26px) saturate(190%);
+  backdrop-filter: blur(26px) saturate(190%);
   transition: transform 180ms ease, background 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+}
+
+.liquid-primary {
+  border-color: rgba(255, 255, 255, 0.38);
+  background: var(--loopout-button-gradient);
+  color: #ffffff;
+  box-shadow: 0 16px 34px rgba(60, 118, 249, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: blur(28px) saturate(190%);
 }
 
 .glass-button:hover,
@@ -59,6 +69,6 @@
 }
 
 .ios-focus-ring:focus-visible {
-  outline: 2px solid rgba(110, 168, 254, 0.85);
+  outline: 2px solid rgba(60, 118, 249, 0.85);
   outline-offset: 3px;
 }

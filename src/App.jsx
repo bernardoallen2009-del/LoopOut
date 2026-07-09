@@ -115,6 +115,9 @@ const storageKeys = {
   demoRole: 'loopout.demoRole',
   demoFriends: 'loopout.demoFriends',
   demoFriendRequests: 'loopout.demoFriendRequests',
+  educationSession: 'loopout.education.session',
+  educationRoster: 'loopout.education.roster',
+  educationStudentSession: 'loopout.education.studentSession',
 };
 
 const defaultProfile = {
@@ -392,7 +395,21 @@ function getPurposeUrl(appId) {
 }
 
 function getEducationJoinUrl(session) {
-  return `${window.location.origin}/education/join?code=${encodeURIComponent(session.publicCode)}`;
+  const params = new URLSearchParams({
+    code: session.publicCode,
+    className: session.className,
+    subject: session.subject,
+    room: session.room,
+    teacher: session.teacher,
+    starts: session.startedAtLabel,
+    ends: session.endsAtLabel,
+    duration: String(session.durationMinutes || 0),
+    remaining: String(session.remainingMinutes || 0),
+    strictness: session.strictness,
+    blocked: (session.blockedApps || []).join('|'),
+    allowed: (session.allowedApps || []).join('|'),
+  });
+  return `${window.location.origin}/education/join?${params.toString()}`;
 }
 
 function getReturnShortcutUrl(app) {
@@ -1324,6 +1341,98 @@ function LoopOutQrCode({ value, className = 'h-56 w-56' }) {
       </svg>
     </div>
   );
+}
+
+function getTodayInputValue() {
+  const date = new Date();
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return offsetDate.toISOString().slice(0, 10);
+}
+
+function getCurrentTimeInputValue() {
+  const date = new Date();
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function parseEducationList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  return String(value || '')
+    .split(/[,\n|]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function createEducationPublicCode(className = 'CLASS') {
+  const cleanClass = String(className || 'CLASS')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, 6) || 'CLASS';
+  const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 4).toUpperCase();
+  return `CLASS-${cleanClass}-${suffix}`;
+}
+
+function createEducationSessionDefaults(source = demoEducation.activeSession) {
+  return {
+    ...source,
+    date: source.date || getTodayInputValue(),
+    startTime: source.startTime || (source.date ? source.startedAtLabel : getCurrentTimeInputValue()) || '09:15',
+    durationMinutes: Number(source.durationMinutes || 90),
+    blockedApps: parseEducationList(source.blockedApps),
+    allowedApps: parseEducationList(source.allowedApps),
+    publicCode: source.publicCode || createEducationPublicCode(source.className),
+    status: source.status || 'live',
+  };
+}
+
+function getEducationStartMs(session) {
+  const date = session?.date || getTodayInputValue();
+  const time = session?.startTime || session?.startedAtLabel || '09:00';
+  const parsed = new Date(`${date}T${time}:00`);
+  return Number.isNaN(parsed.getTime()) ? Date.now() : parsed.getTime();
+}
+
+function getComputedEducationSession(session, nowMs = Date.now()) {
+  const base = createEducationSessionDefaults(session || demoEducation.activeSession);
+  const startMs = getEducationStartMs(base);
+  const durationMinutes = Math.max(15, Number(base.durationMinutes || 90));
+  const endMs = startMs + minutesToMs(durationMinutes);
+  const forcedEnded = base.status === 'ended';
+  const elapsedMinutes = forcedEnded ? durationMinutes : Math.min(durationMinutes, Math.max(0, Math.floor((nowMs - startMs) / 60000)));
+  const remainingMinutes = forcedEnded ? 0 : Math.max(0, Math.ceil((endMs - nowMs) / 60000));
+  const status = forcedEnded ? 'ended' : nowMs < startMs ? 'scheduled' : nowMs > endMs ? 'ended' : base.status || 'live';
+
+  return {
+    ...base,
+    durationMinutes,
+    elapsedMinutes,
+    remainingMinutes,
+    startedAtLabel: formatTime(startMs),
+    endsAtLabel: formatTime(endMs),
+    status,
+  };
+}
+
+function createEducationRosterDefaults() {
+  return [];
+}
+
+function createEducationStudentSessionFromParams(searchParams) {
+  const code = searchParams.get('code') || demoEducation.activeSession.publicCode;
+  return createEducationSessionDefaults({
+    ...demoEducation.activeSession,
+    publicCode: code,
+    className: searchParams.get('className') || demoEducation.activeSession.className,
+    subject: searchParams.get('subject') || demoEducation.activeSession.subject,
+    room: searchParams.get('room') || demoEducation.activeSession.room,
+    teacher: searchParams.get('teacher') || demoEducation.activeSession.teacher,
+    startTime: searchParams.get('starts') || demoEducation.activeSession.startedAtLabel,
+    durationMinutes: Number(searchParams.get('duration') || demoEducation.activeSession.durationMinutes),
+    remainingMinutes: Number(searchParams.get('remaining') || demoEducation.activeSession.remainingMinutes),
+    strictness: searchParams.get('strictness') || demoEducation.activeSession.strictness,
+    blockedApps: parseEducationList(searchParams.get('blocked') || demoEducation.activeSession.blockedApps),
+    allowedApps: parseEducationList(searchParams.get('allowed') || demoEducation.activeSession.allowedApps),
+    status: 'live',
+  });
 }
 
 function PassStatusPill({ status }) {
@@ -2552,7 +2661,7 @@ function BusinessPage({ navigate, onDemoStart }) {
 
 function EducationPage({ navigate, onDemoStart }) {
   return (
-    <MarketingShell navigate={navigate} onDemoStart={onDemoStart} cta="Education preview">
+    <MarketingShell navigate={navigate} onDemoStart={onDemoStart} cta="Open Education">
       <MarketingHero
         eyebrow="LoopOut Education"
         title="Distraction-free classrooms. Healthier digital habits."
@@ -2582,16 +2691,28 @@ function EducationPage({ navigate, onDemoStart }) {
   );
 }
 
-function EducationJoinPage({ navigate, code, onJoin }) {
-  const session = demoEducation.activeSession;
-  const cleanCode = normalizePublicCode(code);
-  const valid = cleanCode === normalizePublicCode(session.publicCode);
+function EducationJoinPage({ navigate, searchParams, onJoin }) {
+  const joinedSession = useMemo(() => createEducationStudentSessionFromParams(searchParams), [searchParams]);
+  const [, setStudentEducationSession] = useLocalStorage(storageKeys.educationStudentSession, createEducationSessionDefaults());
+  const cleanCode = normalizePublicCode(joinedSession.publicCode);
+  const valid =
+    Boolean(cleanCode) &&
+    (cleanCode === normalizePublicCode(demoEducation.activeSession.publicCode) ||
+      cleanCode.startsWith('CLASS') ||
+      Boolean(searchParams.get('className')));
+  const joinClass = useCallback(() => {
+    setStudentEducationSession({
+      ...joinedSession,
+      joinedAt: formatTime(Date.now()),
+    });
+    onJoin?.();
+  }, [joinedSession, onJoin, setStudentEducationSession]);
 
   useEffect(() => {
     if (!valid) return undefined;
-    const timer = window.setTimeout(() => onJoin?.(), 900);
+    const timer = window.setTimeout(() => joinClass(), 900);
     return () => window.clearTimeout(timer);
-  }, [onJoin, valid]);
+  }, [joinClass, valid]);
 
   return (
     <div className="min-h-screen bg-canvas px-4 py-[calc(env(safe-area-inset-top)+24px)] text-ink">
@@ -2609,15 +2730,15 @@ function EducationJoinPage({ navigate, code, onJoin }) {
           </h1>
           <p className="mt-3 text-sm leading-6 text-muted">
             {valid
-              ? `${session.className} · ${session.subject} · ${session.room}. Your student view will open automatically.`
+              ? `${joinedSession.className} · ${joinedSession.subject} · ${joinedSession.room}. Your student view will open automatically.`
               : 'Ask the teacher for the current LoopOut Education QR code.'}
           </p>
           <div className="mt-5 rounded-lg bg-canvas p-3 text-left">
-            <DetailRow label="Code" value={formatPublicCode(code)} />
-            <DetailRow label="Blocked apps" value={session.blockedApps.join(', ')} />
-            <DetailRow label="Ends" value={session.endsAtLabel} />
+            <DetailRow label="Code" value={formatPublicCode(joinedSession.publicCode)} />
+            <DetailRow label="Blocked apps" value={joinedSession.blockedApps.join(', ')} />
+            <DetailRow label="Ends" value={getComputedEducationSession(joinedSession).endsAtLabel} />
           </div>
-          <Button className="mt-5 w-full" icon={valid ? LockKeyhole : BookOpen} onClick={() => (valid ? onJoin?.() : navigate('/education'))}>
+          <Button className="mt-5 w-full" icon={valid ? LockKeyhole : BookOpen} onClick={() => (valid ? joinClass() : navigate('/education'))}>
             {valid ? 'Open student block now' : 'Back to Education'}
           </Button>
         </section>
@@ -2929,11 +3050,11 @@ function MiniBarChart({ values = [] }) {
 }
 
 function StudentBlockedHomePage({ navigate, now }) {
-  const education = demoEducation;
-  const session = education.activeSession;
-  const scannedStudent = education.studentStatuses.find((student) => student.scanned);
+  const [storedStudentSession] = useLocalStorage(storageKeys.educationStudentSession, createEducationSessionDefaults());
+  const session = getComputedEducationSession(storedStudentSession, now);
   const progress = Math.min(1, Math.max(0, session.elapsedMinutes / session.durationMinutes));
   const progressPercent = Math.round(progress * 100);
+  const statusLabel = session.status === 'scheduled' ? 'Starts soon' : session.status === 'ended' ? 'Completed' : 'Blocked now';
 
   return (
     <>
@@ -2951,7 +3072,7 @@ function StudentBlockedHomePage({ navigate, now }) {
           <div className="grid h-14 w-14 shrink-0 place-items-center rounded-[20px] bg-primary text-white shadow-[0_18px_36px_rgba(60,118,249,0.28)]">
             <LockKeyhole className="h-7 w-7" />
           </div>
-          <span className="rounded-full bg-[#E8F8EF] px-3 py-1 text-xs font-semibold text-[#137A3D]">Blocked now</span>
+          <span className="rounded-full bg-[#E8F8EF] px-3 py-1 text-xs font-semibold text-[#137A3D]">{statusLabel}</span>
         </div>
 
         <p className="mt-6 text-sm font-semibold uppercase tracking-[0.12em] text-primary">Class focus active</p>
@@ -3003,7 +3124,7 @@ function StudentBlockedHomePage({ navigate, now }) {
         <div className="mt-4 grid grid-cols-2 gap-2">
           <div className="rounded-[20px] bg-canvas p-3">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">QR scan</p>
-            <p className="mt-1 text-sm font-semibold text-ink">Confirmed {scannedStudent?.joinedAt || 'now'}</p>
+            <p className="mt-1 text-sm font-semibold text-ink">Confirmed {storedStudentSession.joinedAt || 'now'}</p>
           </div>
           <div className="rounded-[20px] bg-canvas p-3">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Updated</p>
@@ -3045,16 +3166,31 @@ function StudentBlockedHomePage({ navigate, now }) {
   );
 }
 
-function EducationDashboardPage({ navigate }) {
-  const education = demoEducation;
-  const session = education.activeSession;
-  const classJoinUrl = getEducationJoinUrl(session);
-  const [studentRows, setStudentRows] = useState(() => education.studentStatuses.map((student) => ({ ...student, reminderSent: false })));
+function getEducationTeacherSection(path) {
+  if (path === '/education/students') return 'students';
+  if (path === '/education/apps') return 'apps';
+  return 'home';
+}
+
+function EducationDashboardPage({ navigate, section = 'home' }) {
+  const now = useNow();
+  const [teacherSession, setTeacherSession] = useLocalStorage(storageKeys.educationSession, createEducationSessionDefaults());
+  const [studentRows, setStudentRows] = useLocalStorage(storageKeys.educationRoster, createEducationRosterDefaults());
   const [query, setQuery] = useState('');
+  const [newStudentName, setNewStudentName] = useState('');
   const [copyStatus, setCopyStatus] = useState('');
   const [filter, setFilter] = useState('all');
   const [actionMessage, setActionMessage] = useState('');
+  const editableSession = createEducationSessionDefaults(teacherSession);
+  const session = getComputedEducationSession(editableSession, now);
+  const classJoinUrl = getEducationJoinUrl(session);
   const normalizedQuery = query.trim().toLowerCase();
+  const scannedTotal = studentRows.filter((student) => student.scanned).length;
+  const missingStudents = studentRows.filter((student) => !student.scanned);
+  const missingTotal = missingStudents.length;
+  const remindedTotal = studentRows.filter((student) => student.reminderSent && !student.scanned).length;
+  const attendanceProgress = scannedTotal / Math.max(1, studentRows.length);
+  const attendancePercent = Math.round(attendanceProgress * 100);
   const filteredRoster = studentRows
     .filter((student) => student.name.toLowerCase().includes(normalizedQuery))
     .filter((student) => {
@@ -3062,15 +3198,27 @@ function EducationDashboardPage({ navigate }) {
       if (filter === 'missing') return !student.scanned;
       return true;
     });
-  const scannedTotal = studentRows.filter((student) => student.scanned).length;
-  const missingTotal = studentRows.length - scannedTotal;
-  const attendanceProgress = scannedTotal / Math.max(1, studentRows.length);
-  const attendancePercent = Math.round(attendanceProgress * 100);
-  const missingStudents = studentRows.filter((student) => !student.scanned);
+  const statusLabel = session.status === 'scheduled' ? 'Scheduled' : session.status === 'ended' ? 'Ended' : 'Live now';
+  const statusTone =
+    session.status === 'ended'
+      ? 'bg-[#FFF1F0] text-[#B42318]'
+      : session.status === 'scheduled'
+        ? 'bg-white/70 text-deep'
+        : 'bg-[#E8F8EF] text-[#137A3D]';
+  const activeSection = ['home', 'students', 'apps'].includes(section) ? section : 'home';
+  const teacherTabs = [
+    { id: 'home', label: 'Home', path: '/education/dashboard', icon: Home },
+    { id: 'students', label: 'Students', path: '/education/students', icon: Users },
+    { id: 'apps', label: 'Apps', path: '/education/apps', icon: LockKeyhole },
+  ];
 
   const showActionMessage = (message) => {
     setActionMessage(message);
-    window.setTimeout(() => setActionMessage(''), 2200);
+    window.setTimeout(() => setActionMessage(''), 2400);
+  };
+
+  const updateSession = (patch) => {
+    setTeacherSession((current) => createEducationSessionDefaults({ ...current, ...patch }));
   };
 
   const copyClassCode = async () => {
@@ -3078,33 +3226,70 @@ function EducationDashboardPage({ navigate }) {
       await navigator.clipboard?.writeText(classJoinUrl);
       setCopyStatus('Join link copied');
     } catch {
-      setCopyStatus('Code ready to copy manually');
+      setCopyStatus('Copy the visible link manually');
     }
     window.setTimeout(() => setCopyStatus(''), 1800);
   };
 
-  const simulateNextScan = () => {
-    const nextStudent = missingStudents[0];
-    if (!nextStudent) {
-      showActionMessage('Everyone has already joined this class session.');
+  const regenerateQr = () => {
+    updateSession({ publicCode: createEducationPublicCode(session.className), status: 'live' });
+    showActionMessage('New classroom QR generated.');
+  };
+
+  const startClassBlock = () => {
+    setTeacherSession((current) =>
+      createEducationSessionDefaults({
+        ...current,
+        date: getTodayInputValue(),
+        startTime: getCurrentTimeInputValue(),
+        publicCode: createEducationPublicCode(current.className),
+        status: 'live',
+      })
+    );
+    setStudentRows((current) =>
+      current.map((student) => ({
+        ...student,
+        scanned: false,
+        joinedAt: '-',
+        remaining: '-',
+        reminderSent: false,
+        status: 'Not scanned',
+      }))
+    );
+    showActionMessage('Class block started. Students can scan the QR now.');
+  };
+
+  const endClassBlock = () => {
+    updateSession({ status: 'ended' });
+    showActionMessage('Class block ended.');
+  };
+
+  const addStudent = () => {
+    const name = newStudentName.trim();
+    if (!name) return;
+    const duplicate = studentRows.some((student) => student.name.trim().toLowerCase() === name.toLowerCase());
+    if (duplicate) {
+      showActionMessage(`${name} is already in this roster.`);
       return;
     }
+    setStudentRows((current) => [
+      ...current,
+      {
+        id: crypto.randomUUID(),
+        name,
+        status: 'Not scanned',
+        scanned: false,
+        joinedAt: '-',
+        remaining: '-',
+        reminderSent: false,
+      },
+    ]);
+    setNewStudentName('');
+    showActionMessage(`${name} added to the class roster.`);
+  };
 
-    setStudentRows((current) =>
-      current.map((student) =>
-        student.id === nextStudent.id
-          ? {
-              ...student,
-              scanned: true,
-              status: 'Scanned now',
-              joinedAt: formatTime(Date.now()),
-              remaining: `${session.remainingMinutes} min`,
-              reminderSent: false,
-            }
-          : student
-      )
-    );
-    showActionMessage(`${nextStudent.name} joined the classroom block.`);
+  const removeStudent = (studentId) => {
+    setStudentRows((current) => current.filter((student) => student.id !== studentId));
   };
 
   const markStudentScanned = (studentId) => {
@@ -3115,7 +3300,7 @@ function EducationDashboardPage({ navigate }) {
           ? {
               ...student,
               scanned: true,
-              status: 'Scanned now',
+              status: 'Joined',
               joinedAt: formatTime(Date.now()),
               remaining: `${session.remainingMinutes} min`,
               reminderSent: false,
@@ -3126,12 +3311,28 @@ function EducationDashboardPage({ navigate }) {
     if (target) showActionMessage(`${target.name} marked as joined.`);
   };
 
+  const markStudentMissing = (studentId) => {
+    setStudentRows((current) =>
+      current.map((student) =>
+        student.id === studentId
+          ? {
+              ...student,
+              scanned: false,
+              status: 'Not scanned',
+              joinedAt: '-',
+              remaining: '-',
+              reminderSent: false,
+            }
+          : student
+      )
+    );
+  };
+
   const markReminderSent = () => {
     if (!missingStudents.length) {
-      showActionMessage('No reminders needed. Everyone has scanned.');
+      showActionMessage('Everyone in the roster has joined.');
       return;
     }
-
     setStudentRows((current) =>
       current.map((student) =>
         student.scanned
@@ -3146,11 +3347,54 @@ function EducationDashboardPage({ navigate }) {
     showActionMessage(`Reminder marked for ${missingStudents.length} student${missingStudents.length === 1 ? '' : 's'}.`);
   };
 
-  const resetRoster = () => {
-    setStudentRows(education.studentStatuses.map((student) => ({ ...student, reminderSent: false })));
+  const resetAttendance = () => {
+    setStudentRows((current) =>
+      current.map((student) => ({
+        ...student,
+        scanned: false,
+        joinedAt: '-',
+        remaining: '-',
+        reminderSent: false,
+        status: 'Not scanned',
+      }))
+    );
+    showActionMessage('Attendance reset for this class.');
+  };
+
+  const clearRoster = () => {
+    setStudentRows([]);
     setFilter('all');
     setQuery('');
-    showActionMessage('Class roster reset.');
+    showActionMessage('Roster cleared.');
+  };
+
+  const exportAttendance = () => {
+    if (!studentRows.length) {
+      showActionMessage('Add students before exporting attendance.');
+      return;
+    }
+    const headers = ['Student', 'Status', 'Joined at', 'Reminder sent', 'Class', 'Subject', 'Room', 'Code'];
+    const rows = studentRows.map((student) => [
+      student.name,
+      student.scanned ? 'Joined' : 'Missing',
+      student.joinedAt || '-',
+      student.reminderSent ? 'Yes' : 'No',
+      session.className,
+      session.subject,
+      session.room,
+      session.publicCode,
+    ]);
+    const csv = [headers, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `loopout-attendance-${session.className.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    showActionMessage('Attendance CSV exported.');
   };
 
   return (
@@ -3159,35 +3403,57 @@ function EducationDashboardPage({ navigate }) {
         <button type="button" onClick={() => navigate('/')} aria-label="LoopOut home">
           <BrandMark />
         </button>
-        <span className="rounded-full border border-white/70 bg-white/55 px-3 py-1 text-xs font-semibold text-deep shadow-sm backdrop-blur-xl">
-          Teacher mode
+        <span className={classNames('rounded-full px-3 py-1 text-xs font-semibold shadow-sm backdrop-blur-xl', statusTone)}>
+          {statusLabel}
         </span>
       </div>
 
+      <nav className="mt-5 grid grid-cols-3 gap-2 rounded-[26px] border border-white/70 bg-white/50 p-2 shadow-soft backdrop-blur-2xl" aria-label="Teacher pages">
+        {teacherTabs.map(({ id, label, path, icon: Icon }) => (
+          <button
+            type="button"
+            className={classNames(
+              'flex min-h-11 items-center justify-center gap-1.5 rounded-[20px] px-2 text-xs font-semibold transition',
+              activeSection === id ? 'bg-primary text-white shadow-sm' : 'bg-white/45 text-deep'
+            )}
+            key={id}
+            onClick={() => navigate(path)}
+          >
+            <Icon className="h-4 w-4" />
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
+
+      {actionMessage ? <p className="mt-4 rounded-[20px] bg-soft p-3 text-sm font-semibold text-deep">{actionMessage}</p> : null}
+
+      {activeSection === 'home' ? (
       <section className="mt-5 overflow-hidden rounded-[32px] border border-white/70 bg-white/60 p-5 shadow-lift backdrop-blur-2xl">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">{education.institution}</p>
-            <h1 className="mt-2 text-3xl font-semibold leading-tight text-ink">Classroom focus control.</h1>
+            <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">LoopOut Education</p>
+            <h1 className="mt-2 text-3xl font-semibold leading-tight text-ink">Classroom control.</h1>
             <p className="mt-3 text-sm leading-6 text-muted">
               {session.className} · {session.subject} · {session.room}
             </p>
           </div>
-          <span className="rounded-full bg-[#E8F8EF] px-3 py-1 text-xs font-semibold text-[#137A3D]">Live</span>
+          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-[18px] bg-primary text-white shadow-[0_18px_36px_rgba(60,118,249,0.24)]">
+            <BookOpen className="h-6 w-6" />
+          </div>
         </div>
 
         <div className="mt-6 rounded-[28px] bg-primary p-5 text-white shadow-[0_20px_44px_rgba(60,118,249,0.24)]">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-sm font-semibold text-white/75">QR attendance</p>
+              <p className="text-sm font-semibold text-white/75">Attendance</p>
               <div className="mt-2 flex items-end gap-2">
                 <p className="text-6xl font-semibold leading-none tabular-nums">{scannedTotal}</p>
                 <p className="pb-2 text-lg font-semibold text-white/80">/ {studentRows.length}</p>
               </div>
             </div>
             <div className="rounded-[20px] bg-white/15 px-3 py-2 text-right">
-              <p className="text-xs font-semibold text-white/70">Missing</p>
-              <p className="text-2xl font-semibold tabular-nums">{missingTotal}</p>
+              <p className="text-xs font-semibold text-white/70">Remaining</p>
+              <p className="text-2xl font-semibold tabular-nums">{session.remainingMinutes}</p>
             </div>
           </div>
           <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/25">
@@ -3195,21 +3461,79 @@ function EducationDashboardPage({ navigate }) {
           </div>
           <div className="mt-3 flex items-center justify-between text-xs font-semibold text-white/75">
             <span>{session.startedAtLabel}</span>
-            <span>{attendancePercent}% joined</span>
+            <span>{studentRows.length ? `${attendancePercent}% joined` : 'Roster empty'}</span>
             <span>{session.endsAtLabel}</span>
           </div>
         </div>
       </section>
+      ) : null}
 
+      {activeSection === 'apps' ? (
+      <section className="mt-4 rounded-[28px] border border-white/70 bg-white/60 p-5 shadow-soft backdrop-blur-2xl">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-ink">Session setup</h2>
+            <p className="mt-1 text-sm text-muted">Edit the class details before sharing the QR.</p>
+          </div>
+          <Button variant="secondary" className="px-3" icon={QrCode} onClick={regenerateQr}>
+            New QR
+          </Button>
+        </div>
+        <div className="mt-4 grid gap-3">
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Class</span>
+            <input className="mt-2 min-h-12 w-full rounded-[22px] border border-line bg-white/65 px-4 text-sm font-semibold text-ink outline-none focus:border-activeBlue focus:ring-4 focus:ring-activeBlue/15" value={editableSession.className} onChange={(event) => updateSession({ className: event.target.value })} />
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Subject</span>
+              <input className="mt-2 min-h-12 w-full rounded-[22px] border border-line bg-white/65 px-4 text-sm text-ink outline-none focus:border-activeBlue focus:ring-4 focus:ring-activeBlue/15" value={editableSession.subject} onChange={(event) => updateSession({ subject: event.target.value })} />
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Room</span>
+              <input className="mt-2 min-h-12 w-full rounded-[22px] border border-line bg-white/65 px-4 text-sm text-ink outline-none focus:border-activeBlue focus:ring-4 focus:ring-activeBlue/15" value={editableSession.room} onChange={(event) => updateSession({ room: event.target.value })} />
+            </label>
+          </div>
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Teacher</span>
+            <input className="mt-2 min-h-12 w-full rounded-[22px] border border-line bg-white/65 px-4 text-sm text-ink outline-none focus:border-activeBlue focus:ring-4 focus:ring-activeBlue/15" value={editableSession.teacher} onChange={(event) => updateSession({ teacher: event.target.value })} />
+          </label>
+          <div className="grid grid-cols-3 gap-3">
+            <label className="block">
+              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Date</span>
+              <input type="date" className="mt-2 min-h-12 w-full rounded-[22px] border border-line bg-white/65 px-3 text-sm text-ink outline-none focus:border-activeBlue focus:ring-4 focus:ring-activeBlue/15" value={editableSession.date} onChange={(event) => updateSession({ date: event.target.value })} />
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Start</span>
+              <input type="time" className="mt-2 min-h-12 w-full rounded-[22px] border border-line bg-white/65 px-3 text-sm text-ink outline-none focus:border-activeBlue focus:ring-4 focus:ring-activeBlue/15" value={editableSession.startTime} onChange={(event) => updateSession({ startTime: event.target.value })} />
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Minutes</span>
+              <input type="number" min="15" max="180" className="mt-2 min-h-12 w-full rounded-[22px] border border-line bg-white/65 px-3 text-sm text-ink outline-none focus:border-activeBlue focus:ring-4 focus:ring-activeBlue/15" value={editableSession.durationMinutes} onChange={(event) => updateSession({ durationMinutes: Number(event.target.value) })} />
+            </label>
+          </div>
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Blocked apps</span>
+            <textarea className="mt-2 min-h-20 w-full resize-none rounded-[22px] border border-line bg-white/65 px-4 py-3 text-sm text-ink outline-none focus:border-activeBlue focus:ring-4 focus:ring-activeBlue/15" value={editableSession.blockedApps.join(', ')} onChange={(event) => updateSession({ blockedApps: parseEducationList(event.target.value) })} />
+          </label>
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Allowed apps</span>
+            <input className="mt-2 min-h-12 w-full rounded-[22px] border border-line bg-white/65 px-4 text-sm text-ink outline-none focus:border-activeBlue focus:ring-4 focus:ring-activeBlue/15" value={editableSession.allowedApps.join(', ')} onChange={(event) => updateSession({ allowedApps: parseEducationList(event.target.value) })} />
+          </label>
+        </div>
+      </section>
+      ) : null}
+
+      {activeSection === 'home' ? (
       <section className="mt-4 rounded-[28px] border border-white/70 bg-white/60 p-5 shadow-soft backdrop-blur-2xl">
         <div className="flex items-start gap-4">
           <div className="shrink-0 rounded-[24px] bg-white/70 p-3 shadow-sm">
             <LoopOutQrCode value={classJoinUrl} className="h-36 w-36" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-ink">Student join QR</p>
-            <p className="mt-1 text-sm leading-6 text-muted">Students scan once to join this class block.</p>
-            <p className="mt-3 rounded-[18px] bg-canvas px-3 py-2 text-sm font-semibold tracking-[0.08em] text-deep">
+            <p className="text-sm font-semibold text-ink">Class QR</p>
+            <p className="mt-1 text-sm leading-6 text-muted">Students scan this to open their classroom lock screen.</p>
+            <p className="mt-3 rounded-[18px] bg-canvas px-3 py-2 text-xs font-semibold tracking-[0.08em] text-deep">
               {session.publicCode}
             </p>
           </div>
@@ -3219,61 +3543,73 @@ function EducationDashboardPage({ navigate }) {
           <Button className="w-full" variant="soft" icon={Copy} onClick={copyClassCode}>
             {copyStatus || 'Copy join link'}
           </Button>
-          <Button className="w-full" variant="secondary" icon={LockKeyhole} onClick={() => navigate(`/education/join?code=${encodeURIComponent(session.publicCode)}`)}>
+          <Button className="w-full" variant="secondary" icon={LockKeyhole} onClick={() => navigate(`/education/join?${new URLSearchParams(classJoinUrl.split('?')[1] || '').toString()}`)}>
             Test student view
           </Button>
         </div>
       </section>
+      ) : null}
 
+      {activeSection === 'home' ? (
       <section className="mt-4 rounded-[28px] border border-white/70 bg-white/60 p-5 shadow-soft backdrop-blur-2xl">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="font-semibold text-ink">Teacher actions</h2>
-            <p className="mt-1 text-sm text-muted">{session.remainingMinutes} minutes left · {session.strictness} focus</p>
+            <h2 className="font-semibold text-ink">Class actions</h2>
+            <p className="mt-1 text-sm text-muted">{missingTotal} missing · {remindedTotal} reminded</p>
           </div>
-          <span className="rounded-full bg-soft px-3 py-1 text-xs font-semibold text-deep">Active</span>
+          <span className={classNames('rounded-full px-3 py-1 text-xs font-semibold', statusTone)}>{statusLabel}</span>
         </div>
         <div className="mt-4 grid gap-2">
-          <Button className="w-full" icon={CheckCircle2} disabled={!missingStudents.length} onClick={simulateNextScan}>
-            Simulate next QR scan
+          <Button className="w-full" icon={Play} onClick={startClassBlock}>
+            Start class block now
           </Button>
           <div className="grid grid-cols-2 gap-2">
             <Button className="w-full px-3" variant="soft" icon={Bell} disabled={!missingStudents.length} onClick={markReminderSent}>
               Remind missing
             </Button>
-            <Button className="w-full px-3" variant="secondary" icon={UploadCloud} onClick={resetRoster}>
-              Reset roster
+            <Button className="w-full px-3" variant="secondary" icon={CheckCircle2} disabled={session.status === 'ended'} onClick={endClassBlock}>
+              End class
+            </Button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Button className="w-full px-3" variant="secondary" icon={UploadCloud} onClick={exportAttendance}>
+              Export CSV
+            </Button>
+            <Button className="w-full px-3" variant="ghost" icon={X} disabled={!studentRows.length} onClick={resetAttendance}>
+              Reset scans
             </Button>
           </div>
         </div>
-        {actionMessage ? <p className="mt-4 rounded-[20px] bg-soft p-3 text-sm font-semibold text-deep">{actionMessage}</p> : null}
       </section>
+      ) : null}
 
+      {activeSection === 'students' ? (
       <section className="mt-4 rounded-[28px] border border-white/70 bg-white/60 p-5 shadow-soft backdrop-blur-2xl">
-        <h2 className="font-semibold text-ink">Class rules</h2>
-        <div className="mt-4 grid gap-3">
+        <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Blocked apps</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {session.blockedApps.map((app) => (
-                <span className="rounded-full bg-soft px-3 py-1.5 text-sm font-semibold text-deep" key={app}>{app}</span>
-              ))}
-            </div>
+            <h2 className="font-semibold text-ink">Students</h2>
+            <p className="mt-1 text-sm text-muted">Add the class roster and track who joined the QR block.</p>
           </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Allowed for class</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {session.allowedApps.map((app) => (
-                <span className="rounded-full bg-white/70 px-3 py-1.5 text-sm font-semibold text-ink shadow-sm" key={app}>{app}</span>
-              ))}
-            </div>
-          </div>
+          <Button variant="ghost" className="px-3" disabled={!studentRows.length} onClick={clearRoster}>
+            Clear
+          </Button>
         </div>
-      </section>
-
-      <section className="mt-4 rounded-[28px] border border-white/70 bg-white/60 p-5 shadow-soft backdrop-blur-2xl">
-        <label className="block">
-          <span className="text-sm font-semibold text-ink">Roster</span>
+        <div className="mt-4 flex gap-2">
+          <input
+            className="min-h-12 min-w-0 flex-1 rounded-[22px] border border-line bg-white/65 px-4 text-sm text-ink outline-none focus:border-activeBlue focus:ring-4 focus:ring-activeBlue/15"
+            value={newStudentName}
+            onChange={(event) => setNewStudentName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') addStudent();
+            }}
+            placeholder="Student name"
+          />
+          <Button className="px-4" icon={Plus} onClick={addStudent}>
+            Add
+          </Button>
+        </div>
+        <label className="mt-4 block">
+          <span className="text-sm font-semibold text-ink">Search roster</span>
           <input
             className="mt-2 min-h-12 w-full rounded-[22px] border border-line bg-white/65 px-4 text-sm text-ink outline-none backdrop-blur-xl focus:border-activeBlue focus:ring-4 focus:ring-activeBlue/15"
             value={query}
@@ -3314,7 +3650,7 @@ function EducationDashboardPage({ navigate }) {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-ink">{student.name}</p>
                   <p className="mt-1 text-xs leading-5 text-muted">
-                    {student.scanned ? `Scanned at ${student.joinedAt} · ${student.remaining}` : 'Waiting for classroom QR scan'}
+                    {student.scanned ? `Joined at ${student.joinedAt} · ${student.remaining}` : student.reminderSent ? 'Reminder marked' : 'Waiting for QR scan'}
                   </p>
                 </div>
                 <span
@@ -3326,22 +3662,34 @@ function EducationDashboardPage({ navigate }) {
                   {student.status}
                 </span>
               </div>
-              {!student.scanned ? (
-                <Button className="mt-3 w-full" variant="soft" icon={CheckCircle2} onClick={() => markStudentScanned(student.id)}>
-                  Mark as scanned
+              <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+                {student.scanned ? (
+                  <Button className="w-full" variant="secondary" icon={X} onClick={() => markStudentMissing(student.id)}>
+                    Mark missing
+                  </Button>
+                ) : (
+                  <Button className="w-full" variant="soft" icon={CheckCircle2} onClick={() => markStudentScanned(student.id)}>
+                    Mark joined
+                  </Button>
+                )}
+                <Button className="px-3" variant="ghost" icon={X} onClick={() => removeStudent(student.id)}>
+                  Remove
                 </Button>
-              ) : null}
+              </div>
             </div>
           )) : (
-            <p className="rounded-[20px] bg-canvas p-3 text-sm text-muted">No students match this view.</p>
+            <p className="rounded-[20px] bg-canvas p-4 text-sm leading-6 text-muted">
+              {studentRows.length ? 'No students match this view.' : 'Add students to start tracking this class.'}
+            </p>
           )}
         </div>
       </section>
+      ) : null}
 
       <section className="mt-4 rounded-[28px] border border-white/70 bg-white/60 p-5 shadow-soft backdrop-blur-2xl">
         <p className="text-sm font-semibold text-ink">Privacy boundary</p>
         <p className="mt-2 text-sm leading-6 text-muted">
-          Teachers only see classroom QR participation. They do not see private app usage, friends, places or personal LoopOut sessions.
+          Teachers only see class QR participation. They do not see private app usage, friends, places or personal LoopOut sessions.
         </p>
       </section>
     </>
@@ -3622,7 +3970,14 @@ function AppShell({ children, navigate, path, session, role = 'personal' }) {
     { label: 'Stats', path: '/partner/dashboard', icon: TrendingUp },
     { label: 'Profile', path: '/settings', icon: CircleUserRound },
   ];
-  const navItems = role === 'business' ? businessNavItems : personalNavItems;
+  const teacherNavItems = [
+    { label: 'Home', path: '/education/dashboard', icon: Home },
+    { label: 'Students', path: '/education/students', icon: Users },
+    { label: 'Apps', path: '/education/apps', icon: LockKeyhole },
+  ];
+  const studentNavItems = [{ label: 'Home', path: '/dashboard', icon: LockKeyhole }];
+  const navItems =
+    role === 'business' ? businessNavItems : role === 'teacher' ? teacherNavItems : role === 'student' ? studentNavItems : personalNavItems;
 
   return (
     <div className="min-h-screen bg-canvas text-ink">
@@ -3660,15 +4015,18 @@ function AppShell({ children, navigate, path, session, role = 'personal' }) {
   );
 }
 
-function RoleLockedShell({ children, navigate, path, targetPath, session, role }) {
+function RoleLockedShell({ children, navigate, path, targetPath, session, role, allowedPaths }) {
+  const safePaths = allowedPaths?.length ? allowedPaths : [targetPath];
+  const shellPath = safePaths.includes(path) ? path : targetPath;
+
   useEffect(() => {
-    if (path === targetPath) return;
+    if (safePaths.includes(path)) return;
     window.history.replaceState({}, '', targetPath);
     window.dispatchEvent(new Event('popstate'));
-  }, [path, targetPath]);
+  }, [path, safePaths, targetPath]);
 
   return (
-    <AppShell navigate={navigate} path={targetPath} session={session} role={role}>
+    <AppShell navigate={navigate} path={shellPath} session={session} role={role}>
       {children}
     </AppShell>
   );
@@ -6359,7 +6717,8 @@ export default function App() {
     if (activeDemoRole === 'student' && path !== '/dashboard') {
       navigate('/dashboard');
     }
-    if (activeDemoRole === 'teacher' && path !== '/education/dashboard') {
+    const teacherEducationPaths = ['/education/dashboard', '/education/students', '/education/apps'];
+    if (activeDemoRole === 'teacher' && !teacherEducationPaths.includes(path)) {
       navigate('/education/dashboard');
     }
     if (activeDemoRole === 'business') {
@@ -7155,7 +7514,7 @@ export default function App() {
     if (path === '/business') return <BusinessPage navigate={navigate} onDemoStart={startDemo} />;
     if (path === '/education') return <EducationPage navigate={navigate} onDemoStart={startDemo} />;
     if (path === '/education/join') {
-      return <EducationJoinPage navigate={navigate} code={searchParams.get('code') || ''} onJoin={() => startDemo('student')} />;
+      return <EducationJoinPage navigate={navigate} searchParams={searchParams} onJoin={() => startDemo('student')} />;
     }
     if (path === '/pricing') return <PricingPage navigate={navigate} onDemoStart={startDemo} />;
     if (path === '/events') return <EventsPage navigate={navigate} onDemoStart={startDemo} />;
@@ -7204,7 +7563,7 @@ export default function App() {
     if (path === '/business') return <BusinessPage navigate={navigate} onDemoStart={startDemo} />;
     if (path === '/education') return <EducationPage navigate={navigate} onDemoStart={startDemo} />;
     if (path === '/education/join') {
-      return <EducationJoinPage navigate={navigate} code={searchParams.get('code') || ''} onJoin={() => startDemo('student')} />;
+      return <EducationJoinPage navigate={navigate} searchParams={searchParams} onJoin={() => startDemo('student')} />;
     }
     if (path === '/pricing') return <PricingPage navigate={navigate} onDemoStart={startDemo} />;
     if (path === '/events') return <EventsPage navigate={navigate} onDemoStart={startDemo} />;
@@ -7236,8 +7595,15 @@ export default function App() {
 
     if (isDemo && activeDemoRole === 'teacher') {
       return (
-        <RoleLockedShell navigate={navigate} path={path} targetPath="/education/dashboard" session={session} role="teacher">
-          <EducationDashboardPage navigate={navigate} />
+        <RoleLockedShell
+          navigate={navigate}
+          path={path}
+          targetPath="/education/dashboard"
+          session={session}
+          role="teacher"
+          allowedPaths={['/education/dashboard', '/education/students', '/education/apps']}
+        >
+          <EducationDashboardPage navigate={navigate} section={getEducationTeacherSection(path)} />
         </RoleLockedShell>
       );
     }
@@ -7364,10 +7730,16 @@ export default function App() {
         return <BusinessEventsPage navigate={navigate} role={activeDemoRole} onStartDemo={startDemo} />;
       }
       if (path === '/education/dashboard') {
-        return <EducationDashboardPage navigate={navigate} />;
+        return <EducationDashboardPage navigate={navigate} section="home" />;
+      }
+      if (path === '/education/students') {
+        return <EducationDashboardPage navigate={navigate} section="students" />;
+      }
+      if (path === '/education/apps') {
+        return <EducationDashboardPage navigate={navigate} section="apps" />;
       }
       if (path.startsWith('/education/')) {
-        return <EducationDashboardPage navigate={navigate} />;
+        return <EducationDashboardPage navigate={navigate} section="home" />;
       }
       if (path === '/admin') {
         return <AdminPage navigate={navigate} passes={passes} partnerLeads={partnerLeads} scanEvents={scanEvents} />;

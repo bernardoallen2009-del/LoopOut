@@ -45,12 +45,14 @@ import {
 } from 'lucide-react';
 import {
   createInviteRecord,
+  createLoopOutPassRecord,
   createPartnerLeadRecord,
   createScreenTimeLog,
   createSessionRecord,
   fetchActiveSession,
   fetchFriends,
   fetchInvites,
+  fetchLoopOutPasses,
   fetchPlaces,
   fetchProfile,
   fetchProgressSnapshot,
@@ -61,6 +63,7 @@ import {
   isSupabaseConfigured,
   respondToFriendRequest,
   respondToInvite,
+  redeemLoopOutPassRemote,
   searchProfiles,
   sendFriendRequest,
   signInWithEmail,
@@ -71,8 +74,10 @@ import {
   supabaseConfigWarning,
   supabaseProjectHost,
   updateSessionRecord,
+  updateLoopOutPassRecord,
   upsertOfflineStatus,
   upsertProfile,
+  validateLoopOutPassRemote,
 } from './lib/supabase';
 import {
   appOptions,
@@ -171,6 +176,7 @@ function isPublicRoutePath(path) {
     '/events',
     '/trust',
     '/roadmap',
+    '/education/join',
     '/partners',
     '/partners/suggest',
     '/onboarding',
@@ -349,8 +355,23 @@ function normalizePublicCode(value = '') {
   return value.toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+function extractPublicCode(value = '') {
+  const rawValue = String(value || '').trim();
+
+  try {
+    const parsedUrl = new URL(rawValue, window.location.origin);
+    const code = parsedUrl.searchParams.get('code');
+    if (code) return normalizePublicCode(code);
+  } catch {
+    // Keep falling back to plain text extraction.
+  }
+
+  const clean = normalizePublicCode(rawValue);
+  return clean.match(/LO[A-Z0-9]{10}/)?.[0] || clean;
+}
+
 function formatPublicCode(value = '') {
-  const clean = normalizePublicCode(value);
+  const clean = extractPublicCode(value);
   return clean.match(/.{1,4}/g)?.join('-') || '';
 }
 
@@ -368,6 +389,10 @@ function isKnownAppId(appId) {
 
 function getPurposeUrl(appId) {
   return `${window.location.origin}/session/purpose?app=${encodeURIComponent(appId)}`;
+}
+
+function getEducationJoinUrl(session) {
+  return `${window.location.origin}/education/join?code=${encodeURIComponent(session.publicCode)}`;
 }
 
 function getReturnShortcutUrl(app) {
@@ -545,10 +570,326 @@ function createDemoInvites() {
   ];
 }
 
-function getQrCell(value, row, column) {
-  const code = normalizePublicCode(value);
-  const seed = code.charCodeAt((row * 7 + column * 11) % Math.max(1, code.length)) || 17;
-  return ((row * row + column * 3 + seed + row * column) % 5) < 2;
+const qrConfig = {
+  version: 5,
+  size: 37,
+  dataCodewords: 108,
+  ecCodewords: 26,
+  eccFormatBits: 1,
+};
+
+let qrExpTable = null;
+let qrLogTable = null;
+
+function getQrGaloisTables() {
+  if (qrExpTable && qrLogTable) return { exp: qrExpTable, log: qrLogTable };
+
+  const exp = Array(512).fill(0);
+  const log = Array(256).fill(0);
+  let value = 1;
+
+  for (let index = 0; index < 255; index += 1) {
+    exp[index] = value;
+    log[value] = index;
+    value <<= 1;
+    if (value & 0x100) value ^= 0x11d;
+  }
+
+  for (let index = 255; index < 512; index += 1) {
+    exp[index] = exp[index - 255];
+  }
+
+  qrExpTable = exp;
+  qrLogTable = log;
+  return { exp, log };
+}
+
+function qrGaloisMultiply(left, right) {
+  if (!left || !right) return 0;
+  const { exp, log } = getQrGaloisTables();
+  return exp[log[left] + log[right]];
+}
+
+function getQrGeneratorPolynomial(degree) {
+  let polynomial = [1];
+
+  for (let index = 0; index < degree; index += 1) {
+    const next = Array(polynomial.length + 1).fill(0);
+    const alpha = getQrGaloisTables().exp[index];
+
+    polynomial.forEach((coefficient, coefficientIndex) => {
+      next[coefficientIndex] ^= coefficient;
+      next[coefficientIndex + 1] ^= qrGaloisMultiply(coefficient, alpha);
+    });
+
+    polynomial = next;
+  }
+
+  return polynomial;
+}
+
+function createQrErrorCorrection(dataCodewords, ecCount) {
+  const generator = getQrGeneratorPolynomial(ecCount);
+  const errorCorrection = Array(ecCount).fill(0);
+
+  dataCodewords.forEach((codeword) => {
+    const factor = codeword ^ errorCorrection.shift();
+    errorCorrection.push(0);
+
+    for (let index = 0; index < ecCount; index += 1) {
+      errorCorrection[index] ^= qrGaloisMultiply(generator[index + 1], factor);
+    }
+  });
+
+  return errorCorrection;
+}
+
+function appendQrBits(bits, value, length) {
+  for (let index = length - 1; index >= 0; index -= 1) {
+    bits.push((value >>> index) & 1);
+  }
+}
+
+function createQrDataCodewords(text) {
+  const bytes = Array.from(new TextEncoder().encode(text));
+  const capacityBits = qrConfig.dataCodewords * 8;
+  const bits = [];
+
+  if (bytes.length > 106) {
+    throw new Error('QR value is too long for LoopOut QR capacity.');
+  }
+
+  appendQrBits(bits, 0b0100, 4);
+  appendQrBits(bits, bytes.length, 8);
+  bytes.forEach((byte) => appendQrBits(bits, byte, 8));
+
+  const terminatorLength = Math.min(4, capacityBits - bits.length);
+  appendQrBits(bits, 0, terminatorLength);
+  while (bits.length % 8) bits.push(0);
+
+  const dataCodewords = [];
+  for (let index = 0; index < bits.length; index += 8) {
+    dataCodewords.push(Number.parseInt(bits.slice(index, index + 8).join(''), 2));
+  }
+
+  const padBytes = [0xec, 0x11];
+  let padIndex = 0;
+  while (dataCodewords.length < qrConfig.dataCodewords) {
+    dataCodewords.push(padBytes[padIndex % 2]);
+    padIndex += 1;
+  }
+
+  return dataCodewords;
+}
+
+function cloneQrMatrix(matrix) {
+  return matrix.map((row) => [...row]);
+}
+
+function createQrBaseMatrix() {
+  const { size, version } = qrConfig;
+  const modules = Array.from({ length: size }, () => Array(size).fill(false));
+  const reserved = Array.from({ length: size }, () => Array(size).fill(false));
+
+  const setModule = (row, column, active, reserve = true) => {
+    if (row < 0 || row >= size || column < 0 || column >= size) return;
+    modules[row][column] = Boolean(active);
+    if (reserve) reserved[row][column] = true;
+  };
+
+  const addFinder = (row, column) => {
+    for (let y = -1; y <= 7; y += 1) {
+      for (let x = -1; x <= 7; x += 1) {
+        const moduleRow = row + y;
+        const moduleColumn = column + x;
+        const inFinder = x >= 0 && x <= 6 && y >= 0 && y <= 6;
+        const active =
+          inFinder &&
+          (x === 0 ||
+            x === 6 ||
+            y === 0 ||
+            y === 6 ||
+            (x >= 2 && x <= 4 && y >= 2 && y <= 4));
+        setModule(moduleRow, moduleColumn, active, true);
+      }
+    }
+  };
+
+  const addAlignment = (centerRow, centerColumn) => {
+    for (let y = -2; y <= 2; y += 1) {
+      for (let x = -2; x <= 2; x += 1) {
+        const distance = Math.max(Math.abs(x), Math.abs(y));
+        setModule(centerRow + y, centerColumn + x, distance !== 1, true);
+      }
+    }
+  };
+
+  addFinder(0, 0);
+  addFinder(0, size - 7);
+  addFinder(size - 7, 0);
+  addAlignment(size - 7, size - 7);
+
+  for (let index = 0; index < size; index += 1) {
+    if (!reserved[6][index]) setModule(6, index, index % 2 === 0, true);
+    if (!reserved[index][6]) setModule(index, 6, index % 2 === 0, true);
+  }
+
+  setModule(4 * version + 9, 8, true, true);
+  writeQrFormatBits(modules, reserved, 0);
+
+  return { modules, reserved };
+}
+
+function getQrFormatBits(mask) {
+  const data = (qrConfig.eccFormatBits << 3) | mask;
+  let remainder = data << 10;
+
+  for (let index = 14; index >= 10; index -= 1) {
+    if ((remainder >>> index) & 1) {
+      remainder ^= 0x537 << (index - 10);
+    }
+  }
+
+  return ((data << 10) | remainder) ^ 0x5412;
+}
+
+function writeQrFormatBits(modules, reserved, mask) {
+  const { size } = qrConfig;
+  const bits = getQrFormatBits(mask);
+  const setModule = (row, column, active) => {
+    modules[row][column] = Boolean(active);
+    if (reserved) reserved[row][column] = true;
+  };
+
+  for (let index = 0; index < 15; index += 1) {
+    const active = ((bits >>> index) & 1) === 1;
+
+    if (index < 6) setModule(8, index, active);
+    else if (index < 8) setModule(8, index + 1, active);
+    else if (index === 8) setModule(7, 8, active);
+    else setModule(14 - index, 8, active);
+
+    if (index < 8) setModule(size - 1 - index, 8, active);
+    else setModule(8, size - 15 + index, active);
+  }
+
+  setModule(size - 8, 8, true);
+}
+
+function placeQrCodewords(modules, reserved, codewords) {
+  const { size } = qrConfig;
+  const bits = [];
+  codewords.forEach((codeword) => appendQrBits(bits, codeword, 8));
+
+  let bitIndex = 0;
+  let upward = true;
+
+  for (let column = size - 1; column > 0; column -= 2) {
+    if (column === 6) column -= 1;
+
+    for (let vertical = 0; vertical < size; vertical += 1) {
+      const row = upward ? size - 1 - vertical : vertical;
+
+      for (let offset = 0; offset < 2; offset += 1) {
+        const currentColumn = column - offset;
+        if (reserved[row][currentColumn]) continue;
+        modules[row][currentColumn] = bits[bitIndex] === 1;
+        bitIndex += 1;
+      }
+    }
+
+    upward = !upward;
+  }
+}
+
+function shouldApplyQrMask(mask, row, column) {
+  if (mask === 0) return (row + column) % 2 === 0;
+  if (mask === 1) return row % 2 === 0;
+  if (mask === 2) return column % 3 === 0;
+  if (mask === 3) return (row + column) % 3 === 0;
+  if (mask === 4) return (Math.floor(row / 2) + Math.floor(column / 3)) % 2 === 0;
+  if (mask === 5) return ((row * column) % 2) + ((row * column) % 3) === 0;
+  if (mask === 6) return (((row * column) % 2) + ((row * column) % 3)) % 2 === 0;
+  return (((row + column) % 2) + ((row * column) % 3)) % 2 === 0;
+}
+
+function applyQrMask(modules, reserved, mask) {
+  for (let row = 0; row < modules.length; row += 1) {
+    for (let column = 0; column < modules.length; column += 1) {
+      if (!reserved[row][column] && shouldApplyQrMask(mask, row, column)) {
+        modules[row][column] = !modules[row][column];
+      }
+    }
+  }
+}
+
+function scoreQrMatrix(modules) {
+  const size = modules.length;
+  let score = 0;
+
+  const scoreLine = (line) => {
+    let runColor = line[0];
+    let runLength = 1;
+
+    for (let index = 1; index < line.length; index += 1) {
+      if (line[index] === runColor) {
+        runLength += 1;
+      } else {
+        if (runLength >= 5) score += 3 + runLength - 5;
+        runColor = line[index];
+        runLength = 1;
+      }
+    }
+
+    if (runLength >= 5) score += 3 + runLength - 5;
+  };
+
+  for (let row = 0; row < size; row += 1) scoreLine(modules[row]);
+  for (let column = 0; column < size; column += 1) scoreLine(modules.map((row) => row[column]));
+
+  for (let row = 0; row < size - 1; row += 1) {
+    for (let column = 0; column < size - 1; column += 1) {
+      const active = modules[row][column];
+      if (
+        modules[row + 1][column] === active &&
+        modules[row][column + 1] === active &&
+        modules[row + 1][column + 1] === active
+      ) {
+        score += 3;
+      }
+    }
+  }
+
+  const darkModules = modules.flat().filter(Boolean).length;
+  const darkPercent = (darkModules * 100) / (size * size);
+  score += Math.floor(Math.abs(darkPercent - 50) / 5) * 10;
+
+  return score;
+}
+
+function buildQrMatrix(text) {
+  const dataCodewords = createQrDataCodewords(text);
+  const errorCorrection = createQrErrorCorrection(dataCodewords, qrConfig.ecCodewords);
+  const codewords = [...dataCodewords, ...errorCorrection];
+  const { modules, reserved } = createQrBaseMatrix();
+  placeQrCodewords(modules, reserved, codewords);
+
+  let bestMatrix = null;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  for (let mask = 0; mask < 8; mask += 1) {
+    const candidate = cloneQrMatrix(modules);
+    applyQrMask(candidate, reserved, mask);
+    writeQrFormatBits(candidate, null, mask);
+    const score = scoreQrMatrix(candidate);
+
+    if (score < bestScore) {
+      bestScore = score;
+      bestMatrix = candidate;
+    }
+  }
+
+  return bestMatrix;
 }
 
 function getSessionApp(session) {
@@ -636,6 +977,72 @@ function sessionFromRecord(row) {
     lockEndsAt: dateMs(row.lock_ends_at),
     status: row.status,
     completedAt: row.status === 'completed' ? dateMs(row.lock_ends_at) || dateMs(row.ended_at) : null,
+  };
+}
+
+function passFromRecord(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    remoteId: row.id,
+    userId: row.user_id,
+    sessionId: row.session_id,
+    rewardCampaignId: row.reward_campaign_id,
+    partnerPlaceId: row.partner_place_id,
+    publicCode: row.public_code,
+    status: row.status || 'active',
+    generatedAt: row.generated_at,
+    expiresAt: row.expires_at,
+    redeemedAt: row.redeemed_at,
+    groupSize: row.group_size || 1,
+    userDisplayName: row.user_display_name,
+    rewardSnapshot: row.reward_snapshot || {},
+  };
+}
+
+function remotePassResultToScannerResult(row, publicCode, fallbackPartnerId) {
+  const resultStatus = row?.result_status || 'invalid';
+  const statusMap = {
+    already_redeemed: 'redeemed',
+    partner_access_required: 'partner_access_required',
+  };
+  const status = statusMap[resultStatus] || resultStatus;
+  const titles = {
+    valid: 'Valid LoopOut Pass',
+    redeemed: 'Already redeemed',
+    expired: 'Pass expired',
+    wrong_partner: 'Wrong partner',
+    invalid: 'Pass not found',
+    partner_access_required: 'Partner access required',
+  };
+  const messages = {
+    valid: 'The pass is active, unused and linked to this partner.',
+    redeemed: 'This LoopOut Pass has already been used.',
+    expired: 'The active lock window has ended, so this reward can no longer be redeemed.',
+    wrong_partner: 'This pass belongs to a different partner place.',
+    invalid: 'Check the code under the QR and try again.',
+    partner_access_required: 'This staff account does not have access to this partner place yet.',
+  };
+
+  return {
+    status,
+    title: titles[status] || titles.invalid,
+    message: messages[status] || messages.invalid,
+    pass: row?.pass_id
+      ? {
+          id: row.pass_id,
+          remoteId: row.pass_id,
+          publicCode,
+          status: status === 'redeemed' ? 'redeemed' : status === 'valid' ? 'active' : status,
+          partnerPlaceId: fallbackPartnerId,
+          rewardSnapshot: { title: row.reward_title, summary: row.reward_summary },
+          groupSize: row.group_size || 1,
+          expiresAt: row.expires_at,
+          userDisplayName: row.user_display_name,
+        }
+      : null,
+    campaign: row?.reward_title ? { title: row.reward_title } : null,
+    partner: row?.partner_name ? { name: row.partner_name } : null,
   };
 }
 
@@ -877,36 +1284,44 @@ function ProgressRing({ progress, label }) {
   );
 }
 
-function LoopOutQrCode({ value }) {
-  const size = 21;
-  const cells = Array.from({ length: size * size }, (_, index) => {
-    const row = Math.floor(index / size);
-    const column = index % size;
-    const inTopLeft = row < 7 && column < 7;
-    const inTopRight = row < 7 && column >= size - 7;
-    const inBottomLeft = row >= size - 7 && column < 7;
-    const inFinder = inTopLeft || inTopRight || inBottomLeft;
-    const finderRow = row % 14;
-    const finderColumn = column % 14;
-    const finderCell =
-      inFinder &&
-      (finderRow === 0 ||
-        finderRow === 6 ||
-        finderColumn === 0 ||
-        finderColumn === 6 ||
-        (finderRow >= 2 && finderRow <= 4 && finderColumn >= 2 && finderColumn <= 4));
-    const active = inFinder ? finderCell : getQrCell(value, row, column);
-    return { row, column, active };
-  });
+function LoopOutQrCode({ value, className = 'h-56 w-56' }) {
+  const qrValue = String(value || 'https://loopout.local');
+  const matrix = useMemo(() => {
+    try {
+      return buildQrMatrix(qrValue);
+    } catch {
+      return null;
+    }
+  }, [qrValue]);
+
+  if (!matrix) {
+    return (
+      <div className={classNames('mx-auto grid place-items-center rounded-[28px] border border-white/70 bg-white/65 p-4 text-center shadow-soft backdrop-blur-2xl', className)}>
+        <p className="text-sm font-semibold text-ink">{formatPublicCode(qrValue) || 'QR unavailable'}</p>
+      </div>
+    );
+  }
+
+  const quietZone = 4;
+  const viewBoxSize = matrix.length + quietZone * 2;
+  const path = matrix
+    .flatMap((row, rowIndex) =>
+      row
+        .map((active, columnIndex) => (active ? `M${columnIndex + quietZone} ${rowIndex + quietZone}h1v1h-1z` : ''))
+        .filter(Boolean)
+    )
+    .join('');
 
   return (
-    <div className="mx-auto grid h-56 w-56 grid-cols-[repeat(21,minmax(0,1fr))] gap-[2px] rounded-[28px] border border-white/70 bg-white/65 p-4 shadow-soft backdrop-blur-2xl" aria-label={`LoopOut Pass code ${formatPublicCode(value)}`}>
-      {cells.map((cell) => (
-        <span
-          className={classNames('aspect-square rounded-[2px]', cell.active ? 'bg-ink' : 'bg-transparent')}
-          key={`${cell.row}-${cell.column}`}
-        />
-      ))}
+    <div
+      className={classNames('mx-auto rounded-[28px] border border-white/70 bg-white p-3 shadow-soft backdrop-blur-2xl', className)}
+      aria-label={`LoopOut QR code ${formatPublicCode(qrValue)}`}
+    >
+      <svg viewBox={`0 0 ${viewBoxSize} ${viewBoxSize}`} className="h-full w-full text-ink" shapeRendering="crispEdges" role="img">
+        <title>{`LoopOut QR ${formatPublicCode(qrValue)}`}</title>
+        <rect width={viewBoxSize} height={viewBoxSize} fill="white" />
+        <path d={path} fill="currentColor" />
+      </svg>
     </div>
   );
 }
@@ -2167,6 +2582,50 @@ function EducationPage({ navigate, onDemoStart }) {
   );
 }
 
+function EducationJoinPage({ navigate, code, onJoin }) {
+  const session = demoEducation.activeSession;
+  const cleanCode = normalizePublicCode(code);
+  const valid = cleanCode === normalizePublicCode(session.publicCode);
+
+  useEffect(() => {
+    if (!valid) return undefined;
+    const timer = window.setTimeout(() => onJoin?.(), 900);
+    return () => window.clearTimeout(timer);
+  }, [onJoin, valid]);
+
+  return (
+    <div className="min-h-screen bg-canvas px-4 py-[calc(env(safe-area-inset-top)+24px)] text-ink">
+      <main className="mx-auto max-w-md">
+        <PageHeader title="Class QR" subtitle="LoopOut Education" navigate={navigate} backTo="/education" />
+        <section className="rounded-lg border border-line bg-white p-6 text-center shadow-soft">
+          <div className="mx-auto grid h-16 w-16 place-items-center rounded-[22px] bg-soft text-primary shadow-sm">
+            {valid ? <CheckCircle2 className="h-8 w-8" /> : <AlertCircle className="h-8 w-8" />}
+          </div>
+          <p className="mt-5 text-sm font-semibold uppercase tracking-[0.12em] text-primary">
+            {valid ? 'Class focus found' : 'Invalid class code'}
+          </p>
+          <h1 className="mt-2 text-3xl font-semibold leading-tight text-ink">
+            {valid ? 'Joining classroom block.' : 'This QR is not active.'}
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-muted">
+            {valid
+              ? `${session.className} · ${session.subject} · ${session.room}. Your student view will open automatically.`
+              : 'Ask the teacher for the current LoopOut Education QR code.'}
+          </p>
+          <div className="mt-5 rounded-lg bg-canvas p-3 text-left">
+            <DetailRow label="Code" value={formatPublicCode(code)} />
+            <DetailRow label="Blocked apps" value={session.blockedApps.join(', ')} />
+            <DetailRow label="Ends" value={session.endsAtLabel} />
+          </div>
+          <Button className="mt-5 w-full" icon={valid ? LockKeyhole : BookOpen} onClick={() => (valid ? onJoin?.() : navigate('/education'))}>
+            {valid ? 'Open student block now' : 'Back to Education'}
+          </Button>
+        </section>
+      </main>
+    </div>
+  );
+}
+
 function PricingPage({ navigate, onDemoStart }) {
   return (
     <MarketingShell navigate={navigate} onDemoStart={onDemoStart} cta="Try demo">
@@ -2354,12 +2813,15 @@ function BusinessDashboardPage({ navigate, passes = [], scanEvents = [], role = 
         <p className="mt-3 text-sm leading-6 text-muted">
           Demo dashboard for cafes, restaurants, coworking spaces and brands running QR rewards and offline events.
         </p>
-        <div className="mt-4 grid grid-cols-2 gap-2">
+        <div className="mt-4 grid gap-2 sm:grid-cols-3">
           <Button variant="soft" icon={QrCode} onClick={() => navigate('/partner/scan')}>
             QR Scanner
           </Button>
           <Button variant="secondary" icon={Calendar} onClick={() => navigate('/business/events')}>
             Events
+          </Button>
+          <Button variant="secondary" icon={WalletCards} onClick={() => onStartDemo?.('business')}>
+            New test pass
           </Button>
         </div>
       </section>
@@ -2549,6 +3011,7 @@ function StudentBlockedHomePage({ navigate, now }) {
 function EducationDashboardPage({ navigate }) {
   const education = demoEducation;
   const session = education.activeSession;
+  const classJoinUrl = getEducationJoinUrl(session);
   const [query, setQuery] = useState('');
   const [copyStatus, setCopyStatus] = useState('');
   const normalizedQuery = query.trim().toLowerCase();
@@ -2561,8 +3024,8 @@ function EducationDashboardPage({ navigate }) {
 
   const copyClassCode = async () => {
     try {
-      await navigator.clipboard?.writeText(session.publicCode);
-      setCopyStatus('Code copied');
+      await navigator.clipboard?.writeText(classJoinUrl);
+      setCopyStatus('Join link copied');
     } catch {
       setCopyStatus('Code ready to copy manually');
     }
@@ -2584,16 +3047,10 @@ function EducationDashboardPage({ navigate }) {
         </p>
         <div className="mt-5 grid gap-4 sm:grid-cols-[auto_1fr]">
           <div className="rounded-lg bg-canvas p-4 text-center">
-            <div className="mx-auto grid h-32 w-32 grid-cols-9 gap-1 rounded-[26px] bg-white p-4 shadow-sm">
-              {Array.from({ length: 81 }).map((_, index) => (
-                <span
-                  className={classNames('rounded-[3px]', index % 2 === 0 || index % 7 === 0 || index % 13 === 0 ? 'bg-ink' : 'bg-transparent')}
-                  key={index}
-                />
-              ))}
-            </div>
+            <LoopOutQrCode value={classJoinUrl} className="h-44 w-44" />
             <p className="mt-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted">Class QR code</p>
             <p className="mt-1 text-lg font-semibold text-ink">{session.publicCode}</p>
+            <p className="mt-1 break-all text-xs leading-5 text-muted">{classJoinUrl}</p>
           </div>
           <div className="rounded-lg bg-canvas p-4">
             <div className="flex items-center gap-4">
@@ -2606,7 +3063,10 @@ function EducationDashboardPage({ navigate }) {
               </div>
             </div>
             <Button className="mt-4 w-full" variant="soft" icon={Copy} onClick={copyClassCode}>
-              {copyStatus || 'Copy class code'}
+              {copyStatus || 'Copy student join link'}
+            </Button>
+            <Button className="mt-2 w-full" variant="secondary" icon={LockKeyhole} onClick={() => navigate(`/education/join?code=${encodeURIComponent(session.publicCode)}`)}>
+              Test as student scan
             </Button>
           </div>
         </div>
@@ -3361,11 +3821,6 @@ function PurposePage({ navigate, draft, setDraft, session }) {
             <h1 className="text-2xl font-semibold leading-tight text-ink">Name the reason first.</h1>
           </div>
         </div>
-        <div className="mt-5 rounded-lg bg-soft p-4">
-          <p className="text-sm leading-6 text-deep">
-            One clear sentence is enough. LoopOut is just helping you turn the tap into a choice.
-          </p>
-        </div>
         <label className="block">
           <span className="mt-5 block text-sm font-semibold text-ink">Write your purpose.</span>
           <textarea
@@ -3649,7 +4104,7 @@ function LockedPage({ navigate, session, now, pass, onGeneratePass }) {
           onTerms={() => navigate(`/rewards/${pass?.rewardCampaignId || rewardCampaigns[0].id}`)}
         />
         {!pass ? (
-          <Button className="mt-3 w-full" variant="soft" icon={WalletCards} onClick={() => onGeneratePass?.()}>
+          <Button className="mt-3 w-full" variant="soft" icon={WalletCards} onClick={async () => onGeneratePass?.()}>
             Generate LoopOut Pass
           </Button>
         ) : null}
@@ -4155,8 +4610,8 @@ function LoopOutPassPage({ navigate, pass, session, now, friends = [], recentPas
   const currentTier = getGroupTier(groupSize);
   const nextTier = groupSize >= 3 ? null : getGroupTier(groupSize + 1);
 
-  const generate = () => {
-    const result = onGeneratePass?.(rewardCampaigns[0].id);
+  const generate = async () => {
+    const result = await onGeneratePass?.(rewardCampaigns[0].id);
     setMessage(result?.error || 'LoopOut Pass ready.');
   };
 
@@ -4268,8 +4723,8 @@ function RewardDetailPage({ navigate, rewardId, session, pass, now, friends = []
   const groupSize = passForReward?.groupSize || getOfflineGroupSize(friends);
   const rewardSummary = getRewardSummary(campaign, groupSize);
 
-  const generate = () => {
-    const result = onGeneratePass?.(campaign.id);
+  const generate = async () => {
+    const result = await onGeneratePass?.(campaign.id);
     if (result?.error) {
       setMessage(result.error);
       return;
@@ -4357,29 +4812,51 @@ function RewardDetailPage({ navigate, rewardId, session, pass, now, friends = []
   );
 }
 
-function PartnerScannerPage({ navigate, initialCode = '', passes = [], validatePassCode, redeemPassCode }) {
+function PartnerScannerPage({ navigate, initialCode = '', passes = [], scanEvents = [], validatePassCode, redeemPassCode }) {
   const verifiedPartners = partnerPlaces.filter((place) => place.isVerified);
   const [selectedPartnerId, setSelectedPartnerId] = useState(verifiedPartners[0]?.id || '');
   const [code, setCode] = useState(formatPublicCode(initialCode));
   const [result, setResult] = useState(null);
   const selectedPartner = getPartnerPlaceById(selectedPartnerId);
+  const demoPass = passes.find((pass) => getPassStatus(pass) === 'active') || passes[0] || null;
 
-  const validate = () => {
-    setResult(validatePassCode(code, selectedPartnerId));
+  const validate = async () => {
+    const cleanCode = extractPublicCode(code);
+    setCode(formatPublicCode(cleanCode));
+    setResult(await validatePassCode(cleanCode, selectedPartnerId));
   };
 
   useEffect(() => {
-    if (initialCode) setResult(validatePassCode(initialCode, selectedPartnerId));
+    const validateInitialCode = async () => {
+      if (!initialCode) return;
+      const cleanCode = extractPublicCode(initialCode);
+      const matchingPass = passes.find((pass) => normalizePublicCode(pass.publicCode) === cleanCode);
+      const partnerId = matchingPass?.partnerPlaceId || selectedPartnerId;
+      setCode(formatPublicCode(cleanCode));
+      if (matchingPass?.partnerPlaceId) setSelectedPartnerId(matchingPass.partnerPlaceId);
+      setResult(await validatePassCode(cleanCode, partnerId));
+    };
+
+    validateInitialCode();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const redeem = () => {
-    setResult(redeemPassCode(code, selectedPartnerId));
+  const redeem = async () => {
+    const cleanCode = extractPublicCode(code);
+    setCode(formatPublicCode(cleanCode));
+    setResult(await redeemPassCode(cleanCode, selectedPartnerId));
+  };
+
+  const loadDemoPass = async () => {
+    if (!demoPass) return;
+    setSelectedPartnerId(demoPass.partnerPlaceId);
+    setCode(formatPublicCode(demoPass.publicCode));
+    setResult(await validatePassCode(demoPass.publicCode, demoPass.partnerPlaceId));
   };
 
   return (
     <>
-      <PageHeader title="Partner scanner" subtitle="Validate a LoopOut Pass." navigate={navigate} backTo="/dashboard" />
+      <PageHeader title="Partner scanner" subtitle="Validate a LoopOut Pass." navigate={navigate} backTo="/business/dashboard" />
       <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
         <div className="grid h-14 w-14 place-items-center rounded-[16px] bg-soft text-primary">
           <QrCode className="h-7 w-7" />
@@ -4389,9 +4866,31 @@ function PartnerScannerPage({ navigate, initialCode = '', passes = [], validateP
           Staff only see the reward, pass status, lock validity window and group size. Private account data stays hidden.
         </p>
         <div className="mt-4 rounded-lg bg-canvas p-3 text-sm leading-6 text-muted">
-          Camera scanning can be connected later with a browser QR library. This MVP validates the code printed under the QR.
+          The QR opens this scanner with the pass code in the URL. Staff can also type or paste the code manually.
         </div>
       </section>
+
+      {demoPass ? (
+        <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Demo customer pass</p>
+              <h2 className="mt-1 text-xl font-semibold text-ink">Use this to test the full scan flow.</h2>
+              <p className="mt-2 text-sm leading-6 text-muted">
+                In a real shop this QR is on the customer's phone. Scanning it opens this page with the code already attached.
+              </p>
+            </div>
+            <PassStatusPill status={getPassStatus(demoPass)} />
+          </div>
+          <div className="mt-4">
+            <LoopOutQrCode value={getPassRedemptionUrl(demoPass)} className="h-44 w-44" />
+            <p className="mt-3 text-center text-sm font-semibold tracking-[0.12em] text-ink">{formatPublicCode(demoPass.publicCode)}</p>
+          </div>
+          <Button className="mt-4 w-full" variant="soft" icon={ScanLine} onClick={loadDemoPass}>
+            Fill and validate this pass
+          </Button>
+        </section>
+      ) : null}
 
       <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
         <label className="block">
@@ -4458,9 +4957,23 @@ function PartnerScannerPage({ navigate, initialCode = '', passes = [], validateP
 
       <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
         <h2 className="font-semibold text-ink">Recent local scans</h2>
-        <p className="mt-2 text-sm leading-6 text-muted">
-          {passes.length} pass{passes.length === 1 ? '' : 'es'} are available in this browser for MVP testing.
-        </p>
+        {scanEvents.length ? (
+          <div className="mt-3 space-y-2">
+            {scanEvents.slice(0, 4).map((event) => (
+              <div className="flex items-center justify-between gap-3 rounded-lg bg-canvas p-3" key={event.id}>
+                <div>
+                  <p className="text-sm font-semibold text-ink">{formatPublicCode(event.publicCode)}</p>
+                  <p className="text-xs text-muted">{formatTime(dateMs(event.scannedAt))}</p>
+                </div>
+                <span className="rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-deep">{event.result}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-sm leading-6 text-muted">
+            {passes.length} pass{passes.length === 1 ? '' : 'es'} are available in this browser for MVP testing.
+          </p>
+        )}
       </section>
     </>
   );
@@ -5760,7 +6273,7 @@ export default function App() {
       setBackendError('');
 
       try {
-        const [profileRow, sessionRow, placeRows, friendsPayload, inviteRows, stats, logs] = await Promise.all([
+        const [profileRow, sessionRow, placeRows, friendsPayload, inviteRows, stats, logs, passRows] = await Promise.all([
           fetchProfile(user),
           fetchActiveSession(user.id),
           fetchPlaces(),
@@ -5768,6 +6281,7 @@ export default function App() {
           fetchInvites(user.id),
           fetchProgressSnapshot(user.id),
           fetchScreenTimeLogs(user.id),
+          fetchLoopOutPasses(user.id),
         ]);
 
         const nextProfile = profileFromRow(profileRow, user);
@@ -5780,13 +6294,14 @@ export default function App() {
         setRemoteInvites(inviteRows);
         setProgressStats(stats);
         setScreenTimeLogs(logs.map(screenTimeLogFromRecord));
+        setPasses(passRows.map(passFromRecord).filter(Boolean));
       } catch (err) {
         setBackendError(getReadableSupabaseError(err) || 'Could not load LoopOut data.');
       } finally {
         setDataLoading(false);
       }
     },
-    [setProfile, setScreenTimeLogs, setSession, setSettings]
+    [setPasses, setProfile, setScreenTimeLogs, setSession, setSettings]
   );
 
   useEffect(() => {
@@ -6172,7 +6687,7 @@ export default function App() {
   };
 
   const ensureLoopOutPass = useCallback(
-    (campaignId = rewardCampaigns[0].id) => {
+    async (campaignId = rewardCampaigns[0].id) => {
       const passUserId = isRemote ? authUser?.id : isDemo ? demoUserId : null;
       if (!passUserId) {
         return { error: 'Sign in or start demo mode to generate a LoopOut Pass.' };
@@ -6186,8 +6701,18 @@ export default function App() {
 
       if (existing && getPassStatus(existing, Date.now()) === 'active') {
         const updatedPass = updatePassReward(existing, campaignId, groupSize);
-        setPasses((current) => current.map((item) => (item.id === updatedPass.id ? updatedPass : item)));
-        return { pass: updatedPass };
+        try {
+          if (isRemote) {
+            const row = await updateLoopOutPassRecord(updatedPass);
+            const remotePass = passFromRecord(row);
+            setPasses((current) => current.map((item) => (item.id === remotePass.id ? remotePass : item)));
+            return { pass: remotePass };
+          }
+          setPasses((current) => current.map((item) => (item.id === updatedPass.id ? updatedPass : item)));
+          return { pass: updatedPass };
+        } catch (err) {
+          return { error: getReadableSupabaseError(err) || 'Could not update LoopOut Pass.' };
+        }
       }
 
       if (getDailyPassCount(passes, passUserId) >= 3) {
@@ -6201,8 +6726,20 @@ export default function App() {
         groupSize,
         displayName: activeProfile.name?.split(' ')[0] || 'LoopOut user',
       });
-      setPasses((current) => [nextPass, ...current]);
-      return { pass: nextPass };
+
+      try {
+        if (isRemote) {
+          const row = await createLoopOutPassRecord(nextPass);
+          const remotePass = passFromRecord(row);
+          setPasses((current) => [remotePass, ...current.filter((item) => item.id !== remotePass.id)]);
+          return { pass: remotePass };
+        }
+
+        setPasses((current) => [nextPass, ...current]);
+        return { pass: nextPass };
+      } catch (err) {
+        return { error: getReadableSupabaseError(err) || 'Could not generate LoopOut Pass.' };
+      }
     },
     [activeProfile.name, authUser, demoUserId, isDemo, isRemote, offlineFriendCount, passes, session, setPasses]
   );
@@ -6228,8 +6765,22 @@ export default function App() {
   );
 
   const validatePassCode = useCallback(
-    (value, selectedPartnerId) => {
-      const cleanCode = normalizePublicCode(value);
+    async (value, selectedPartnerId) => {
+      const cleanCode = extractPublicCode(value);
+
+      if (isRemote) {
+        try {
+          const row = await validateLoopOutPassRemote(cleanCode, selectedPartnerId || null);
+          return remotePassResultToScannerResult(row, cleanCode, selectedPartnerId);
+        } catch (err) {
+          return {
+            status: 'invalid',
+            title: 'Could not validate pass',
+            message: getReadableSupabaseError(err) || 'Check partner access and try again.',
+          };
+        }
+      }
+
       const foundPass = passes.find((item) => normalizePublicCode(item.publicCode) === cleanCode);
 
       if (!cleanCode || !foundPass) {
@@ -6296,18 +6847,70 @@ export default function App() {
         partner,
       };
     },
-    [passes, setScanEvents]
+    [isRemote, passes, setScanEvents]
   );
 
   const redeemPassCode = useCallback(
-    (value, selectedPartnerId) => {
-      const validation = validatePassCode(value, selectedPartnerId);
+    async (value, selectedPartnerId) => {
+      const cleanCode = extractPublicCode(value);
+      const validation = await validatePassCode(cleanCode, selectedPartnerId);
+
+      if (isRemote) {
+        if (validation.status !== 'valid') return validation;
+
+        try {
+          const row = await redeemLoopOutPassRemote(cleanCode, selectedPartnerId);
+          const status = row?.result_status === 'already_redeemed' ? 'redeemed' : row?.result_status || 'redeemed';
+          setScanEvents((current) => [
+            {
+              id: crypto.randomUUID(),
+              publicCode: cleanCode,
+              partnerPlaceId: selectedPartnerId,
+              passId: row?.pass_id || validation.pass?.id || null,
+              result: status,
+              scannedAt: new Date().toISOString(),
+            },
+            ...current,
+          ]);
+          if (status === 'redeemed') {
+            setPasses((current) =>
+              current.map((item) =>
+                normalizePublicCode(item.publicCode) === cleanCode
+                  ? { ...item, status: 'redeemed', redeemedAt: new Date().toISOString(), redeemedPartnerPlaceId: selectedPartnerId }
+                  : item
+              )
+            );
+            return {
+              ...validation,
+              status: 'redeemed',
+              title: 'Reward redeemed',
+              message: 'This pass is now used and cannot be redeemed again.',
+              pass: validation.pass ? { ...validation.pass, status: 'redeemed', redeemedAt: new Date().toISOString() } : validation.pass,
+            };
+          }
+
+          return {
+            ...validation,
+            status,
+            title: status === 'expired' ? 'Pass expired' : 'Could not redeem',
+            message: 'The pass was not redeemed. Check the result and try again.',
+          };
+        } catch (err) {
+          return {
+            ...validation,
+            status: 'invalid',
+            title: 'Could not redeem pass',
+            message: getReadableSupabaseError(err) || 'Check partner access and try again.',
+          };
+        }
+      }
+
       const result = validation.status === 'valid' ? 'redeemed' : validation.status;
 
       setScanEvents((current) => [
         {
           id: crypto.randomUUID(),
-          publicCode: normalizePublicCode(value),
+          publicCode: cleanCode,
           partnerPlaceId: selectedPartnerId,
           passId: validation.pass?.id || null,
           result,
@@ -6334,7 +6937,7 @@ export default function App() {
         pass: redeemedPass,
       };
     },
-    [setPasses, setScanEvents, validatePassCode]
+    [isRemote, setPasses, setScanEvents, validatePassCode]
   );
 
   const publicPage = (() => {
@@ -6342,6 +6945,9 @@ export default function App() {
     if (path === '/platform') return <ProductLinesPage navigate={navigate} onDemoStart={startDemo} />;
     if (path === '/business') return <BusinessPage navigate={navigate} onDemoStart={startDemo} />;
     if (path === '/education') return <EducationPage navigate={navigate} onDemoStart={startDemo} />;
+    if (path === '/education/join') {
+      return <EducationJoinPage navigate={navigate} code={searchParams.get('code') || ''} onJoin={() => startDemo('student')} />;
+    }
     if (path === '/pricing') return <PricingPage navigate={navigate} onDemoStart={startDemo} />;
     if (path === '/events') return <EventsPage navigate={navigate} onDemoStart={startDemo} />;
     if (path === '/trust') return <TrustPage navigate={navigate} onDemoStart={startDemo} />;
@@ -6388,6 +6994,9 @@ export default function App() {
     if (path === '/platform') return <ProductLinesPage navigate={navigate} onDemoStart={startDemo} />;
     if (path === '/business') return <BusinessPage navigate={navigate} onDemoStart={startDemo} />;
     if (path === '/education') return <EducationPage navigate={navigate} onDemoStart={startDemo} />;
+    if (path === '/education/join') {
+      return <EducationJoinPage navigate={navigate} code={searchParams.get('code') || ''} onJoin={() => startDemo('student')} />;
+    }
     if (path === '/pricing') return <PricingPage navigate={navigate} onDemoStart={startDemo} />;
     if (path === '/events') return <EventsPage navigate={navigate} onDemoStart={startDemo} />;
     if (path === '/trust') return <TrustPage navigate={navigate} onDemoStart={startDemo} />;
@@ -6522,6 +7131,7 @@ export default function App() {
             navigate={navigate}
             initialCode={searchParams.get('code') || ''}
             passes={passes}
+            scanEvents={scanEvents}
             validatePassCode={validatePassCode}
             redeemPassCode={redeemPassCode}
           />

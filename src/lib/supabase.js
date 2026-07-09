@@ -546,6 +546,78 @@ export async function createPartnerLeadRecord(lead) {
   return null;
 }
 
+export async function fetchLoopOutPasses(userId) {
+  assertSupabase();
+  const { data, error } = await supabase
+    .from('loopout_passes')
+    .select('*')
+    .eq('user_id', userId)
+    .order('generated_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function createLoopOutPassRecord(pass) {
+  assertSupabase();
+  const { data, error } = await supabase
+    .from('loopout_passes')
+    .insert({
+      id: pass.id,
+      user_id: pass.userId,
+      session_id: pass.sessionId,
+      reward_campaign_id: pass.rewardCampaignId,
+      partner_place_id: pass.partnerPlaceId,
+      public_code: pass.publicCode,
+      status: pass.status || 'active',
+      group_size: pass.groupSize || 1,
+      user_display_name: pass.userDisplayName,
+      reward_snapshot: pass.rewardSnapshot || {},
+      generated_at: pass.generatedAt,
+      expires_at: pass.expiresAt,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateLoopOutPassRecord(pass) {
+  assertSupabase();
+  const { data, error } = await supabase
+    .from('loopout_passes')
+    .update({
+      reward_campaign_id: pass.rewardCampaignId,
+      partner_place_id: pass.partnerPlaceId,
+      group_size: pass.groupSize || 1,
+      reward_snapshot: pass.rewardSnapshot || {},
+    })
+    .eq('id', pass.remoteId || pass.id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function validateLoopOutPassRemote(publicCode, partnerPlaceId = null) {
+  assertSupabase();
+  const { data, error } = await supabase.rpc('validate_loopout_pass', {
+    public_code_input: publicCode,
+    partner_place_id_input: partnerPlaceId || null,
+  });
+  if (error) throw error;
+  return Array.isArray(data) ? data[0] : data;
+}
+
+export async function redeemLoopOutPassRemote(publicCode, partnerPlaceId) {
+  assertSupabase();
+  const { data, error } = await supabase.rpc('redeem_loopout_pass', {
+    public_code_input: publicCode,
+    partner_place_id_input: partnerPlaceId,
+  });
+  if (error) throw error;
+  return Array.isArray(data) ? data[0] : data;
+}
+
 export async function respondToInvite(inviteId, status) {
   assertSupabase();
   const { data, error } = await supabase.from('offline_invites').update({ status }).eq('id', inviteId).select().single();

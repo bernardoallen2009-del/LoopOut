@@ -1413,7 +1413,106 @@ function getComputedEducationSession(session, nowMs = Date.now()) {
 }
 
 function createEducationRosterDefaults() {
-  return [];
+  return [
+    {
+      id: 'student-leonor',
+      name: 'Leonor Pereira',
+      status: 'Joined',
+      scanned: true,
+      joinedAt: '09:16',
+      remaining: '62 min',
+      reminderSent: false,
+      avatar: 'LP',
+      device: 'iPhone 14',
+      seat: 'A1',
+    },
+    {
+      id: 'student-duarte',
+      name: 'Duarte Martins',
+      status: 'Joined',
+      scanned: true,
+      joinedAt: '09:17',
+      remaining: '62 min',
+      reminderSent: false,
+      avatar: 'DM',
+      device: 'iPhone 13',
+      seat: 'A2',
+    },
+    {
+      id: 'student-marta',
+      name: 'Marta Silva',
+      status: 'Joined late',
+      scanned: true,
+      joinedAt: '09:24',
+      remaining: '62 min',
+      reminderSent: false,
+      avatar: 'MS',
+      device: 'iPhone 15',
+      seat: 'B1',
+    },
+    {
+      id: 'student-afonso',
+      name: 'Afonso Ribeiro',
+      status: 'Reminder sent',
+      scanned: false,
+      joinedAt: '-',
+      remaining: '-',
+      reminderSent: true,
+      avatar: 'AR',
+      device: 'Not connected',
+      seat: 'B2',
+    },
+    {
+      id: 'student-beatriz',
+      name: 'Beatriz Costa',
+      status: 'Joined',
+      scanned: true,
+      joinedAt: '09:18',
+      remaining: '62 min',
+      reminderSent: false,
+      avatar: 'BC',
+      device: 'iPhone 12',
+      seat: 'C1',
+    },
+    {
+      id: 'student-tiago',
+      name: 'Tiago Ferreira',
+      status: 'Not scanned',
+      scanned: false,
+      joinedAt: '-',
+      remaining: '-',
+      reminderSent: false,
+      avatar: 'TF',
+      device: 'Not connected',
+      seat: 'C2',
+    },
+  ];
+}
+
+function getEducationAppByName(name) {
+  const clean = String(name || '').toLowerCase();
+  if (clean.includes('youtube')) return appOptions.find((app) => app.id === 'youtube');
+  return appOptions.find((app) => app.name.toLowerCase() === clean || app.id === clean.replace(/\s+/g, '-')) || {
+    id: clean || 'custom',
+    name: name || 'Custom app',
+    logo: 'custom',
+    glyph: '+',
+    tone: '#3C76F9',
+  };
+}
+
+function getEducationBlockedApps(session) {
+  return parseEducationList(session.blockedApps).map((name, index) => {
+    const app = getEducationAppByName(name);
+    return {
+      app,
+      id: `${app.id}-${index}`,
+      duration: `${session.durationMinutes} min`,
+      window: `${session.startedAtLabel}-${session.endsAtLabel}`,
+      state: session.status === 'ended' ? 'Ended' : session.status === 'scheduled' ? 'Scheduled' : 'Blocking now',
+      reason: index === 0 ? 'Short-form distraction' : index === 1 ? 'Social feed' : index === 2 ? 'Messaging loops' : 'Video autoplay',
+    };
+  });
 }
 
 function createEducationStudentSessionFromParams(searchParams) {
@@ -3181,6 +3280,8 @@ function EducationDashboardPage({ navigate, section = 'home' }) {
   const [copyStatus, setCopyStatus] = useState('');
   const [filter, setFilter] = useState('all');
   const [actionMessage, setActionMessage] = useState('');
+  const seededRoster = useRef(false);
+  const refreshedLiveSession = useRef(false);
   const editableSession = createEducationSessionDefaults(teacherSession);
   const session = getComputedEducationSession(editableSession, now);
   const classJoinUrl = getEducationJoinUrl(session);
@@ -3206,11 +3307,33 @@ function EducationDashboardPage({ navigate, section = 'home' }) {
         ? 'bg-white/70 text-deep'
         : 'bg-[#E8F8EF] text-[#137A3D]';
   const activeSection = ['home', 'students', 'apps'].includes(section) ? section : 'home';
+  const blockedAppRows = getEducationBlockedApps(session);
+  const allowedAppRows = parseEducationList(session.allowedApps);
+  const liveStudents = studentRows.filter((student) => student.scanned).slice(0, 3);
   const teacherTabs = [
     { id: 'home', label: 'Home', path: '/education/dashboard', icon: Home },
     { id: 'students', label: 'Students', path: '/education/students', icon: Users },
     { id: 'apps', label: 'Apps', path: '/education/apps', icon: LockKeyhole },
   ];
+
+  useEffect(() => {
+    if (seededRoster.current || studentRows.length >= 4) return;
+    seededRoster.current = true;
+    setStudentRows(createEducationRosterDefaults());
+  }, [setStudentRows, studentRows.length]);
+
+  useEffect(() => {
+    if (refreshedLiveSession.current || session.status !== 'ended') return;
+    refreshedLiveSession.current = true;
+    setTeacherSession((current) =>
+      createEducationSessionDefaults({
+        ...current,
+        date: getTodayInputValue(),
+        startTime: getCurrentTimeInputValue(),
+        status: 'live',
+      })
+    );
+  }, [session.status, setTeacherSession]);
 
   const showActionMessage = (message) => {
     setActionMessage(message);
@@ -3282,6 +3405,9 @@ function EducationDashboardPage({ navigate, section = 'home' }) {
         joinedAt: '-',
         remaining: '-',
         reminderSent: false,
+        avatar: getInitials(name),
+        device: 'Not connected',
+        seat: `D${current.length + 1}`,
       },
     ]);
     setNewStudentName('');
@@ -3366,6 +3492,13 @@ function EducationDashboardPage({ navigate, section = 'home' }) {
     setFilter('all');
     setQuery('');
     showActionMessage('Roster cleared.');
+  };
+
+  const resetDemoRoster = () => {
+    setStudentRows(createEducationRosterDefaults());
+    setFilter('all');
+    setQuery('');
+    showActionMessage('Demo class restored.');
   };
 
   const exportAttendance = () => {
@@ -3465,6 +3598,47 @@ function EducationDashboardPage({ navigate, section = 'home' }) {
             <span>{session.endsAtLabel}</span>
           </div>
         </div>
+
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          {[
+            ['Joined', scannedTotal, CheckCircle2],
+            ['Missing', missingTotal, AlertCircle],
+            ['Blocked', blockedAppRows.length, LockKeyhole],
+          ].map(([label, value, Icon]) => (
+            <div className="rounded-[22px] border border-white/60 bg-white/45 p-3 text-center shadow-sm backdrop-blur-xl" key={label}>
+              <Icon className="mx-auto h-4 w-4 text-primary" />
+              <p className="mt-2 text-2xl font-semibold tabular-nums text-ink">{value}</p>
+              <p className="text-[11px] font-semibold text-muted">{label}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 rounded-[24px] border border-white/60 bg-white/45 p-4 backdrop-blur-xl">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-ink">Recent scans</p>
+            <button type="button" className="text-xs font-semibold text-primary" onClick={() => navigate('/education/students')}>
+              View all
+            </button>
+          </div>
+          <div className="mt-3 flex -space-x-2">
+            {liveStudents.map((student) => (
+              <span
+                className="grid h-10 w-10 place-items-center rounded-full border-2 border-white bg-primary text-xs font-semibold text-white shadow-sm"
+                key={student.id}
+              >
+                {student.avatar || getInitials(student.name)}
+              </span>
+            ))}
+            {missingTotal ? (
+              <span className="grid h-10 min-w-10 place-items-center rounded-full border-2 border-white bg-[#FFF7E6] px-2 text-xs font-semibold text-[#B54708] shadow-sm">
+                +{missingTotal}
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-3 text-xs leading-5 text-muted">
+            {missingTotal ? `${missingTotal} students still need to scan the classroom QR.` : 'Everyone in this roster has joined the class block.'}
+          </p>
+        </div>
       </section>
       ) : null}
 
@@ -3472,13 +3646,83 @@ function EducationDashboardPage({ navigate, section = 'home' }) {
       <section className="mt-4 rounded-[28px] border border-white/70 bg-white/60 p-5 shadow-soft backdrop-blur-2xl">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="font-semibold text-ink">Session setup</h2>
-            <p className="mt-1 text-sm text-muted">Edit the class details before sharing the QR.</p>
+            <h2 className="font-semibold text-ink">Blocked apps</h2>
+            <p className="mt-1 text-sm text-muted">{session.durationMinutes} minutes · {session.startedAtLabel}-{session.endsAtLabel}</p>
           </div>
           <Button variant="secondary" className="px-3" icon={QrCode} onClick={regenerateQr}>
             New QR
           </Button>
         </div>
+
+        <div className="mt-5 rounded-[28px] bg-primary p-4 text-white shadow-[0_18px_40px_rgba(60,118,249,0.22)]">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-white/75">Class lock window</p>
+              <p className="mt-1 text-3xl font-semibold tabular-nums">{session.durationMinutes} min</p>
+            </div>
+            <div className="grid h-12 w-12 place-items-center rounded-[18px] bg-white/15">
+              <Timer className="h-6 w-6" />
+            </div>
+          </div>
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/25">
+            <div className="h-full rounded-full bg-white" style={{ width: `${Math.min(100, Math.round((session.elapsedMinutes / Math.max(1, session.durationMinutes)) * 100))}%` }} />
+          </div>
+          <div className="mt-3 flex items-center justify-between text-xs font-semibold text-white/75">
+            <span>{session.startedAtLabel}</span>
+            <span>{session.remainingMinutes} min left</span>
+            <span>{session.endsAtLabel}</span>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3">
+          {blockedAppRows.map(({ app, id, duration, window, state, reason }) => (
+            <div className="rounded-[26px] border border-white/70 bg-white/55 p-4 shadow-sm backdrop-blur-xl" key={id}>
+              <div className="flex items-start gap-3">
+                <AppLogo app={app} className="h-12 w-12 rounded-[16px]" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-ink">{app.name}</p>
+                      <p className="mt-1 text-xs leading-5 text-muted">{reason}</p>
+                    </div>
+                    <span className={classNames('shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold', session.status === 'live' ? 'bg-[#E8F8EF] text-[#137A3D]' : 'bg-soft text-deep')}>
+                      {state}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <div className="rounded-[18px] bg-canvas px-3 py-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">Duration</p>
+                      <p className="mt-1 text-sm font-semibold text-ink">{duration}</p>
+                    </div>
+                    <div className="rounded-[18px] bg-canvas px-3 py-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">Window</p>
+                      <p className="mt-1 text-sm font-semibold text-ink">{window}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 rounded-[24px] border border-white/70 bg-white/50 p-4 backdrop-blur-xl">
+          <p className="text-sm font-semibold text-ink">Allowed during class</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {allowedAppRows.map((app) => (
+              <span className="rounded-full bg-white/70 px-3 py-1.5 text-sm font-semibold text-deep shadow-sm" key={app}>
+                {app}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-5 border-t border-white/60 pt-5">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal className="h-4 w-4 text-primary" />
+            <h3 className="text-sm font-semibold text-ink">Class settings</h3>
+          </div>
+        </div>
+
         <div className="mt-4 grid gap-3">
           <label className="block">
             <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Class</span>
@@ -3590,10 +3834,25 @@ function EducationDashboardPage({ navigate, section = 'home' }) {
             <h2 className="font-semibold text-ink">Students</h2>
             <p className="mt-1 text-sm text-muted">Add the class roster and track who joined the QR block.</p>
           </div>
-          <Button variant="ghost" className="px-3" disabled={!studentRows.length} onClick={clearRoster}>
-            Clear
+          <Button variant="secondary" className="px-3" onClick={resetDemoRoster}>
+            Reset demo
           </Button>
         </div>
+
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          {[
+            ['Total', studentRows.length, Users],
+            ['Scanned', scannedTotal, CheckCircle2],
+            ['Missing', missingTotal, AlertCircle],
+          ].map(([label, value, Icon]) => (
+            <div className="rounded-[22px] border border-white/70 bg-white/50 p-3 text-center shadow-sm backdrop-blur-xl" key={label}>
+              <Icon className="mx-auto h-4 w-4 text-primary" />
+              <p className="mt-2 text-2xl font-semibold tabular-nums text-ink">{value}</p>
+              <p className="text-[11px] font-semibold text-muted">{label}</p>
+            </div>
+          ))}
+        </div>
+
         <div className="mt-4 flex gap-2">
           <input
             className="min-h-12 min-w-0 flex-1 rounded-[22px] border border-line bg-white/65 px-4 text-sm text-ink outline-none focus:border-activeBlue focus:ring-4 focus:ring-activeBlue/15"
@@ -3647,11 +3906,20 @@ function EducationDashboardPage({ navigate, section = 'home' }) {
               key={student.id}
             >
               <div className="flex items-start justify-between gap-3">
+                <div
+                  className={classNames(
+                    'grid h-11 w-11 shrink-0 place-items-center rounded-full text-sm font-semibold shadow-sm',
+                    student.scanned ? 'bg-primary text-white' : 'bg-white text-[#B54708]'
+                  )}
+                >
+                  {student.avatar || getInitials(student.name)}
+                </div>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-ink">{student.name}</p>
                   <p className="mt-1 text-xs leading-5 text-muted">
                     {student.scanned ? `Joined at ${student.joinedAt} · ${student.remaining}` : student.reminderSent ? 'Reminder marked' : 'Waiting for QR scan'}
                   </p>
+                  <p className="mt-1 text-[11px] font-semibold text-muted">{student.seat || 'Seat pending'} · {student.device || 'Device pending'}</p>
                 </div>
                 <span
                   className={classNames(

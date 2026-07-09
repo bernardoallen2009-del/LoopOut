@@ -2933,75 +2933,112 @@ function StudentBlockedHomePage({ navigate, now }) {
   const session = education.activeSession;
   const scannedStudent = education.studentStatuses.find((student) => student.scanned);
   const progress = Math.min(1, Math.max(0, session.elapsedMinutes / session.durationMinutes));
+  const progressPercent = Math.round(progress * 100);
 
   return (
     <>
-      <div className="pt-[calc(env(safe-area-inset-top)+22px)]">
+      <div className="flex items-center justify-between pt-[calc(env(safe-area-inset-top)+22px)]">
         <button type="button" onClick={() => navigate('/')} aria-label="LoopOut home">
           <BrandMark />
         </button>
+        <span className="rounded-full border border-white/70 bg-white/55 px-3 py-1 text-xs font-semibold text-deep shadow-sm backdrop-blur-xl">
+          Student mode
+        </span>
       </div>
-      <section className="mt-8 rounded-lg border border-line bg-white p-6 text-center shadow-soft">
-        <div className="mx-auto grid h-16 w-16 place-items-center rounded-[22px] bg-soft text-primary shadow-sm">
-          <LockKeyhole className="h-8 w-8" />
+
+      <section className="mt-5 overflow-hidden rounded-[32px] border border-white/70 bg-white/60 p-5 shadow-lift backdrop-blur-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <div className="grid h-14 w-14 shrink-0 place-items-center rounded-[20px] bg-primary text-white shadow-[0_18px_36px_rgba(60,118,249,0.28)]">
+            <LockKeyhole className="h-7 w-7" />
+          </div>
+          <span className="rounded-full bg-[#E8F8EF] px-3 py-1 text-xs font-semibold text-[#137A3D]">Blocked now</span>
         </div>
-        <p className="mt-5 text-sm font-semibold uppercase tracking-[0.12em] text-primary">Class focus active</p>
-        <h1 className="mt-2 text-3xl font-semibold leading-tight text-ink">Your distracting apps are blocked.</h1>
+
+        <p className="mt-6 text-sm font-semibold uppercase tracking-[0.12em] text-primary">Class focus active</p>
+        <h1 className="mt-2 text-3xl font-semibold leading-tight text-ink">Your phone is in focus mode.</h1>
         <p className="mt-3 text-sm leading-6 text-muted">
-          {session.className} is in Focus Mode from {session.startedAtLabel} to {session.endsAtLabel}. Keep this page open while the class session is active.
+          {session.className} is active until {session.endsAtLabel}. Keep this screen open while the class block is running.
         </p>
+
+        <div className="mt-6 rounded-[28px] bg-primary p-5 text-white shadow-[0_20px_44px_rgba(60,118,249,0.24)]">
+          <p className="text-sm font-semibold text-white/75">Time remaining</p>
+          <div className="mt-2 flex items-end gap-2">
+            <p className="text-6xl font-semibold leading-none tabular-nums">{session.remainingMinutes}</p>
+            <p className="pb-2 text-lg font-semibold text-white/80">min</p>
+          </div>
+          <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/25">
+            <div className="h-full rounded-full bg-white transition-all" style={{ width: `${progressPercent}%` }} />
+          </div>
+          <div className="mt-3 flex items-center justify-between text-xs font-semibold text-white/75">
+            <span>{session.startedAtLabel}</span>
+            <span>{progressPercent}% complete</span>
+            <span>{session.endsAtLabel}</span>
+          </div>
+        </div>
       </section>
-      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
-        <div className="grid grid-cols-[auto_1fr] items-center gap-5">
-          <ProgressRing progress={progress} label={`${session.remainingMinutes}m`} />
-          <div>
-            <p className="text-sm font-semibold text-ink">{session.subject}</p>
-            <p className="mt-1 text-sm text-muted">{session.teacher} · {session.room}</p>
-            <div className="mt-3 h-2 rounded-full bg-line">
-              <div className="h-2 rounded-full bg-primary" style={{ width: `${Math.round(progress * 100)}%` }} />
-            </div>
-            <p className="mt-2 text-xs font-semibold text-deep">
-              {session.remainingMinutes} minutes left · ends at {session.endsAtLabel}
+
+      <section className="mt-4 rounded-[28px] border border-white/70 bg-white/60 p-5 shadow-soft backdrop-blur-2xl">
+        <div className="flex items-start gap-3">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-[16px] bg-soft text-primary">
+            <BookOpen className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-lg font-semibold text-ink">{session.subject}</h2>
+            <p className="mt-1 text-sm leading-6 text-muted">{session.teacher} · {session.room}</p>
+            <p className="mt-3 rounded-[20px] bg-loopoutStone/18 px-3 py-2 text-sm font-semibold text-deep">
+              {session.startedAtLabel}-{session.endsAtLabel} · {session.strictness} focus
             </p>
           </div>
         </div>
       </section>
-      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+
+      <section className="mt-4 rounded-[28px] border border-white/70 bg-white/60 p-5 shadow-soft backdrop-blur-2xl">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-ink">Class QR confirmed</p>
             <p className="mt-1 text-sm text-muted">Your phone is attached to this classroom focus session.</p>
           </div>
-          <span className="rounded-full bg-soft px-3 py-1 text-xs font-semibold text-deep">Blocked now</span>
+          <CheckCircle2 className="h-5 w-5 shrink-0 text-primary" />
         </div>
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <div className="rounded-lg bg-canvas p-3">
+          <div className="rounded-[20px] bg-canvas p-3">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">QR scan</p>
             <p className="mt-1 text-sm font-semibold text-ink">Confirmed {scannedStudent?.joinedAt || 'now'}</p>
           </div>
-          <div className="rounded-lg bg-canvas p-3">
+          <div className="rounded-[20px] bg-canvas p-3">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Updated</p>
             <p className="mt-1 text-sm font-semibold text-ink">{formatTime(now)}</p>
           </div>
         </div>
       </section>
-      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
-        <h2 className="font-semibold text-ink">Blocked during this class</h2>
-        <div className="mt-3 flex flex-wrap gap-2">
+
+      <section className="mt-4 rounded-[28px] border border-white/70 bg-white/60 p-5 shadow-soft backdrop-blur-2xl">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-semibold text-ink">Blocked apps</h2>
+          <span className="rounded-full bg-soft px-3 py-1 text-xs font-semibold text-deep">{session.blockedApps.length} apps</span>
+        </div>
+        <div className="mt-4 grid gap-2">
           {session.blockedApps.map((app) => (
-            <span className="rounded-full bg-soft px-3 py-1 text-sm font-semibold text-deep" key={app}>{app}</span>
+            <div className="flex items-center justify-between rounded-[20px] bg-soft px-3 py-3" key={app}>
+              <span className="text-sm font-semibold text-deep">{app}</span>
+              <LockKeyhole className="h-4 w-4 text-primary" />
+            </div>
           ))}
+        </div>
+        <div className="mt-5 border-t border-line pt-4">
+          <h2 className="font-semibold text-ink">Allowed for class</h2>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {session.allowedApps.map((app) => (
+              <span className="rounded-full bg-white/70 px-3 py-1.5 text-sm font-semibold text-ink shadow-sm" key={app}>{app}</span>
+            ))}
+          </div>
         </div>
       </section>
-      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
-        <h2 className="font-semibold text-ink">Allowed for class</h2>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {session.allowedApps.map((app) => (
-            <span className="rounded-full bg-white/70 px-3 py-1 text-sm font-semibold text-ink shadow-sm" key={app}>{app}</span>
-          ))}
-        </div>
-        <p className="mt-4 rounded-lg bg-canvas p-3 text-sm leading-6 text-muted">
-          Education mode is not a social profile. There are no friends, places, passes or personal session controls while a classroom block is active.
+
+      <section className="mt-4 rounded-[28px] border border-white/70 bg-white/60 p-5 shadow-soft backdrop-blur-2xl">
+        <p className="text-sm font-semibold text-ink">Privacy boundary</p>
+        <p className="mt-2 text-sm leading-6 text-muted">
+          This is only the class focus screen. No friends, places, rewards or personal session controls are available during a classroom block.
         </p>
       </section>
     </>

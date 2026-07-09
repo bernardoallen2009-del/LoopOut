@@ -3049,15 +3049,29 @@ function EducationDashboardPage({ navigate }) {
   const education = demoEducation;
   const session = education.activeSession;
   const classJoinUrl = getEducationJoinUrl(session);
+  const [studentRows, setStudentRows] = useState(() => education.studentStatuses.map((student) => ({ ...student, reminderSent: false })));
   const [query, setQuery] = useState('');
   const [copyStatus, setCopyStatus] = useState('');
+  const [filter, setFilter] = useState('all');
+  const [actionMessage, setActionMessage] = useState('');
   const normalizedQuery = query.trim().toLowerCase();
-  const roster = education.studentStatuses.filter((student) => student.name.toLowerCase().includes(normalizedQuery));
-  const scannedStudents = roster.filter((student) => student.scanned);
-  const missingStudents = roster.filter((student) => !student.scanned);
-  const scannedTotal = education.studentStatuses.filter((student) => student.scanned).length;
-  const missingTotal = education.studentStatuses.length - scannedTotal;
-  const attendanceProgress = scannedTotal / Math.max(1, education.studentStatuses.length);
+  const filteredRoster = studentRows
+    .filter((student) => student.name.toLowerCase().includes(normalizedQuery))
+    .filter((student) => {
+      if (filter === 'scanned') return student.scanned;
+      if (filter === 'missing') return !student.scanned;
+      return true;
+    });
+  const scannedTotal = studentRows.filter((student) => student.scanned).length;
+  const missingTotal = studentRows.length - scannedTotal;
+  const attendanceProgress = scannedTotal / Math.max(1, studentRows.length);
+  const attendancePercent = Math.round(attendanceProgress * 100);
+  const missingStudents = studentRows.filter((student) => !student.scanned);
+
+  const showActionMessage = (message) => {
+    setActionMessage(message);
+    window.setTimeout(() => setActionMessage(''), 2200);
+  };
 
   const copyClassCode = async () => {
     try {
@@ -3069,112 +3083,265 @@ function EducationDashboardPage({ navigate }) {
     window.setTimeout(() => setCopyStatus(''), 1800);
   };
 
+  const simulateNextScan = () => {
+    const nextStudent = missingStudents[0];
+    if (!nextStudent) {
+      showActionMessage('Everyone has already joined this class session.');
+      return;
+    }
+
+    setStudentRows((current) =>
+      current.map((student) =>
+        student.id === nextStudent.id
+          ? {
+              ...student,
+              scanned: true,
+              status: 'Scanned now',
+              joinedAt: formatTime(Date.now()),
+              remaining: `${session.remainingMinutes} min`,
+              reminderSent: false,
+            }
+          : student
+      )
+    );
+    showActionMessage(`${nextStudent.name} joined the classroom block.`);
+  };
+
+  const markStudentScanned = (studentId) => {
+    const target = studentRows.find((student) => student.id === studentId);
+    setStudentRows((current) =>
+      current.map((student) =>
+        student.id === studentId
+          ? {
+              ...student,
+              scanned: true,
+              status: 'Scanned now',
+              joinedAt: formatTime(Date.now()),
+              remaining: `${session.remainingMinutes} min`,
+              reminderSent: false,
+            }
+          : student
+      )
+    );
+    if (target) showActionMessage(`${target.name} marked as joined.`);
+  };
+
+  const markReminderSent = () => {
+    if (!missingStudents.length) {
+      showActionMessage('No reminders needed. Everyone has scanned.');
+      return;
+    }
+
+    setStudentRows((current) =>
+      current.map((student) =>
+        student.scanned
+          ? student
+          : {
+              ...student,
+              status: 'Reminder sent',
+              reminderSent: true,
+            }
+      )
+    );
+    showActionMessage(`Reminder marked for ${missingStudents.length} student${missingStudents.length === 1 ? '' : 's'}.`);
+  };
+
+  const resetRoster = () => {
+    setStudentRows(education.studentStatuses.map((student) => ({ ...student, reminderSent: false })));
+    setFilter('all');
+    setQuery('');
+    showActionMessage('Class roster reset.');
+  };
+
   return (
     <>
-      <div className="pt-[calc(env(safe-area-inset-top)+22px)]">
+      <div className="flex items-center justify-between pt-[calc(env(safe-area-inset-top)+22px)]">
         <button type="button" onClick={() => navigate('/')} aria-label="LoopOut home">
           <BrandMark />
         </button>
+        <span className="rounded-full border border-white/70 bg-white/55 px-3 py-1 text-xs font-semibold text-deep shadow-sm backdrop-blur-xl">
+          Teacher mode
+        </span>
       </div>
-      <section className="mt-8 rounded-lg border border-line bg-white p-5 shadow-soft">
-        <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">{education.institution}</p>
-        <h1 className="mt-2 text-3xl font-semibold leading-tight text-ink">Teacher classroom panel</h1>
-        <p className="mt-3 text-sm leading-6 text-muted">
-          {session.className} · {session.subject} · {session.room} · {session.time}
-        </p>
-        <div className="mt-5 grid gap-4 sm:grid-cols-[auto_1fr]">
-          <div className="rounded-lg bg-canvas p-4 text-center">
-            <LoopOutQrCode value={classJoinUrl} className="h-44 w-44" />
-            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted">Class QR code</p>
-            <p className="mt-1 text-lg font-semibold text-ink">{session.publicCode}</p>
-            <p className="mt-1 break-all text-xs leading-5 text-muted">{classJoinUrl}</p>
+
+      <section className="mt-5 overflow-hidden rounded-[32px] border border-white/70 bg-white/60 p-5 shadow-lift backdrop-blur-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">{education.institution}</p>
+            <h1 className="mt-2 text-3xl font-semibold leading-tight text-ink">Classroom focus control.</h1>
+            <p className="mt-3 text-sm leading-6 text-muted">
+              {session.className} · {session.subject} · {session.room}
+            </p>
           </div>
-          <div className="rounded-lg bg-canvas p-4">
-            <div className="flex items-center gap-4">
-              <ProgressRing progress={attendanceProgress} label={`${scannedTotal}/${education.studentStatuses.length}`} />
-              <div>
-                <p className="text-sm font-semibold text-ink">QR attendance</p>
-                <p className="mt-1 text-sm leading-6 text-muted">
-                  Students scan once at the start of class. This panel tracks participation only.
-                </p>
+          <span className="rounded-full bg-[#E8F8EF] px-3 py-1 text-xs font-semibold text-[#137A3D]">Live</span>
+        </div>
+
+        <div className="mt-6 rounded-[28px] bg-primary p-5 text-white shadow-[0_20px_44px_rgba(60,118,249,0.24)]">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-white/75">QR attendance</p>
+              <div className="mt-2 flex items-end gap-2">
+                <p className="text-6xl font-semibold leading-none tabular-nums">{scannedTotal}</p>
+                <p className="pb-2 text-lg font-semibold text-white/80">/ {studentRows.length}</p>
               </div>
             </div>
-            <Button className="mt-4 w-full" variant="soft" icon={Copy} onClick={copyClassCode}>
-              {copyStatus || 'Copy student join link'}
-            </Button>
-            <Button className="mt-2 w-full" variant="secondary" icon={LockKeyhole} onClick={() => navigate(`/education/join?code=${encodeURIComponent(session.publicCode)}`)}>
-              Test as student scan
-            </Button>
+            <div className="rounded-[20px] bg-white/15 px-3 py-2 text-right">
+              <p className="text-xs font-semibold text-white/70">Missing</p>
+              <p className="text-2xl font-semibold tabular-nums">{missingTotal}</p>
+            </div>
+          </div>
+          <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/25">
+            <div className="h-full rounded-full bg-white transition-all" style={{ width: `${attendancePercent}%` }} />
+          </div>
+          <div className="mt-3 flex items-center justify-between text-xs font-semibold text-white/75">
+            <span>{session.startedAtLabel}</span>
+            <span>{attendancePercent}% joined</span>
+            <span>{session.endsAtLabel}</span>
           </div>
         </div>
       </section>
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        <StatCard label="Scanned QR" value={`${scannedTotal}/${education.studentStatuses.length}`} icon={CheckCircle2} />
-        <StatCard label="Not scanned" value={missingTotal} icon={AlertCircle} />
-      </div>
-      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+
+      <section className="mt-4 rounded-[28px] border border-white/70 bg-white/60 p-5 shadow-soft backdrop-blur-2xl">
+        <div className="flex items-start gap-4">
+          <div className="shrink-0 rounded-[24px] bg-white/70 p-3 shadow-sm">
+            <LoopOutQrCode value={classJoinUrl} className="h-36 w-36" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-ink">Student join QR</p>
+            <p className="mt-1 text-sm leading-6 text-muted">Students scan once to join this class block.</p>
+            <p className="mt-3 rounded-[18px] bg-canvas px-3 py-2 text-sm font-semibold tracking-[0.08em] text-deep">
+              {session.publicCode}
+            </p>
+          </div>
+        </div>
+        <p className="mt-3 break-all rounded-[20px] bg-canvas p-3 text-xs leading-5 text-muted">{classJoinUrl}</p>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <Button className="w-full" variant="soft" icon={Copy} onClick={copyClassCode}>
+            {copyStatus || 'Copy join link'}
+          </Button>
+          <Button className="w-full" variant="secondary" icon={LockKeyhole} onClick={() => navigate(`/education/join?code=${encodeURIComponent(session.publicCode)}`)}>
+            Test student view
+          </Button>
+        </div>
+      </section>
+
+      <section className="mt-4 rounded-[28px] border border-white/70 bg-white/60 p-5 shadow-soft backdrop-blur-2xl">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="font-semibold text-ink">Class session rules</h2>
-            <p className="mt-1 text-sm text-muted">{session.remainingMinutes} minutes left · {session.strictness} mode</p>
+            <h2 className="font-semibold text-ink">Teacher actions</h2>
+            <p className="mt-1 text-sm text-muted">{session.remainingMinutes} minutes left · {session.strictness} focus</p>
           </div>
           <span className="rounded-full bg-soft px-3 py-1 text-xs font-semibold text-deep">Active</span>
         </div>
         <div className="mt-4 grid gap-2">
-          <div className="rounded-lg bg-canvas p-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Blocked apps</p>
-            <p className="mt-1 text-sm font-semibold text-ink">{session.blockedApps.join(', ')}</p>
+          <Button className="w-full" icon={CheckCircle2} disabled={!missingStudents.length} onClick={simulateNextScan}>
+            Simulate next QR scan
+          </Button>
+          <div className="grid grid-cols-2 gap-2">
+            <Button className="w-full px-3" variant="soft" icon={Bell} disabled={!missingStudents.length} onClick={markReminderSent}>
+              Remind missing
+            </Button>
+            <Button className="w-full px-3" variant="secondary" icon={UploadCloud} onClick={resetRoster}>
+              Reset roster
+            </Button>
           </div>
-          <div className="rounded-lg bg-canvas p-3">
+        </div>
+        {actionMessage ? <p className="mt-4 rounded-[20px] bg-soft p-3 text-sm font-semibold text-deep">{actionMessage}</p> : null}
+      </section>
+
+      <section className="mt-4 rounded-[28px] border border-white/70 bg-white/60 p-5 shadow-soft backdrop-blur-2xl">
+        <h2 className="font-semibold text-ink">Class rules</h2>
+        <div className="mt-4 grid gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Blocked apps</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {session.blockedApps.map((app) => (
+                <span className="rounded-full bg-soft px-3 py-1.5 text-sm font-semibold text-deep" key={app}>{app}</span>
+              ))}
+            </div>
+          </div>
+          <div>
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Allowed for class</p>
-            <p className="mt-1 text-sm font-semibold text-ink">{session.allowedApps.join(', ')}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {session.allowedApps.map((app) => (
+                <span className="rounded-full bg-white/70 px-3 py-1.5 text-sm font-semibold text-ink shadow-sm" key={app}>{app}</span>
+              ))}
+            </div>
           </div>
         </div>
       </section>
-      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
+
+      <section className="mt-4 rounded-[28px] border border-white/70 bg-white/60 p-5 shadow-soft backdrop-blur-2xl">
         <label className="block">
-          <span className="text-sm font-semibold text-ink">Find student</span>
+          <span className="text-sm font-semibold text-ink">Roster</span>
           <input
-            className="mt-2 w-full rounded-lg border border-line bg-white px-3 py-3 text-sm text-ink outline-none focus:border-primary"
+            className="mt-2 min-h-12 w-full rounded-[22px] border border-line bg-white/65 px-4 text-sm text-ink outline-none backdrop-blur-xl focus:border-activeBlue focus:ring-4 focus:ring-activeBlue/15"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search roster"
+            placeholder="Search student"
           />
         </label>
-      </section>
-      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
-        <h2 className="font-semibold text-ink">Students who scanned</h2>
-        <div className="mt-3 space-y-2">
-          {scannedStudents.length ? scannedStudents.map((student) => (
-            <div className="grid grid-cols-[1fr_auto] gap-3 rounded-lg bg-canvas p-3" key={student.id}>
-              <div>
-                <p className="text-sm font-semibold text-ink">{student.name}</p>
-                <p className="text-xs text-muted">Scanned at {student.joinedAt} · {student.remaining}</p>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {[
+            ['All', 'all', studentRows.length],
+            ['Joined', 'scanned', scannedTotal],
+            ['Missing', 'missing', missingTotal],
+          ].map(([label, value, count]) => (
+            <button
+              type="button"
+              className={classNames(
+                'rounded-full border px-3 py-2 text-xs font-semibold transition',
+                filter === value ? 'border-primary bg-primary text-white shadow-sm' : 'border-white/70 bg-white/55 text-deep'
+              )}
+              key={value}
+              onClick={() => setFilter(value)}
+            >
+              {label} · {count}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-4 space-y-2">
+          {filteredRoster.length ? filteredRoster.map((student) => (
+            <div
+              className={classNames(
+                'rounded-[24px] border p-3',
+                student.scanned ? 'border-white/70 bg-canvas' : 'border-[#FEDF89] bg-[#FFF7E6]'
+              )}
+              key={student.id}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-ink">{student.name}</p>
+                  <p className="mt-1 text-xs leading-5 text-muted">
+                    {student.scanned ? `Scanned at ${student.joinedAt} · ${student.remaining}` : 'Waiting for classroom QR scan'}
+                  </p>
+                </div>
+                <span
+                  className={classNames(
+                    'shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold',
+                    student.scanned ? 'bg-soft text-deep' : 'bg-white/80 text-[#B54708]'
+                  )}
+                >
+                  {student.status}
+                </span>
               </div>
-              <span className="rounded-full bg-soft px-2.5 py-1 text-xs font-semibold text-deep">{student.status}</span>
+              {!student.scanned ? (
+                <Button className="mt-3 w-full" variant="soft" icon={CheckCircle2} onClick={() => markStudentScanned(student.id)}>
+                  Mark as scanned
+                </Button>
+              ) : null}
             </div>
           )) : (
-            <p className="rounded-lg bg-canvas p-3 text-sm text-muted">No scanned students match this search.</p>
+            <p className="rounded-[20px] bg-canvas p-3 text-sm text-muted">No students match this view.</p>
           )}
         </div>
       </section>
-      <section className="mt-4 rounded-lg border border-line bg-white p-5 shadow-sm">
-        <h2 className="font-semibold text-ink">Students who have not scanned</h2>
-        <div className="mt-3 space-y-2">
-          {missingStudents.length ? missingStudents.map((student) => (
-            <div className="grid grid-cols-[1fr_auto] gap-3 rounded-lg bg-[#FFF7E6] p-3" key={student.id}>
-              <div>
-                <p className="text-sm font-semibold text-ink">{student.name}</p>
-                <p className="text-xs text-muted">Waiting for QR scan</p>
-              </div>
-              <span className="rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-[#B54708]">{student.status}</span>
-            </div>
-          )) : (
-            <p className="rounded-lg bg-canvas p-3 text-sm text-muted">Everyone in this filtered list has scanned.</p>
-          )}
-        </div>
-        <p className="mt-4 rounded-lg bg-canvas p-3 text-sm leading-6 text-muted">
-          Teachers only see whether students joined the classroom QR session. They do not see personal app usage, friends, places or private sessions.
+
+      <section className="mt-4 rounded-[28px] border border-white/70 bg-white/60 p-5 shadow-soft backdrop-blur-2xl">
+        <p className="text-sm font-semibold text-ink">Privacy boundary</p>
+        <p className="mt-2 text-sm leading-6 text-muted">
+          Teachers only see classroom QR participation. They do not see private app usage, friends, places or personal LoopOut sessions.
         </p>
       </section>
     </>

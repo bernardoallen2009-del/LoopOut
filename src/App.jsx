@@ -6344,6 +6344,7 @@ export default function App() {
   const activePlaces = places.length ? places : lisbonPlaces;
   const activeStats = isDemo && !isEducationRole ? demoProgressStats : progressStats || fallbackProgressSnapshot(session, activeInvites, screenTimeLogs);
   const requestedAppId = searchParams.get('app');
+  const directAppPurposeRoute = path === '/session/purpose' && isKnownAppId(requestedAppId);
   const currentRoute = `${path}${search}`;
   const activePass = getActivePassForSession(passes, session, now);
   const offlineFriendCount = activeFriends.filter((friend) => friend.isOffline || friend.available).length;
@@ -6351,6 +6352,10 @@ export default function App() {
 
   useEffect(() => {
     if (!isDemo || isPublicRoutePath(path)) return;
+    if (directAppPurposeRoute) {
+      if (activeDemoRole !== 'personal') setDemoRole('personal');
+      return;
+    }
     if (activeDemoRole === 'student' && path !== '/dashboard') {
       navigate('/dashboard');
     }
@@ -6369,7 +6374,7 @@ export default function App() {
         navigate('/business/dashboard');
       }
     }
-  }, [activeDemoRole, isDemo, navigate, path]);
+  }, [activeDemoRole, directAppPurposeRoute, isDemo, navigate, path, setDemoRole]);
 
   const startDemo = useCallback(
     (role = 'personal') => {
